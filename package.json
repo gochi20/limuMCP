@@ -1,0 +1,23 @@
+{
+  "name": "limu-portal-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for LIMU Portal cargo, shipment, package, client, and finance workflows.",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "limu-portal-mcp": "./src/server.js"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "smoke": "node scripts/smoke.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "dotenv": "^17.2.3",
+    "mysql2": "^3.15.3",
+    "zod": "^3.25.76"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
