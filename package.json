@@ -8,13 +8,21 @@
     "limu-portal-mcp": "./src/server.js"
   },
   "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "vercel-start": "next start",
     "start": "node src/server.js",
-    "smoke": "node scripts/smoke.js"
+    "smoke": "node scripts/smoke.js",
+    "register-oauth-client": "node scripts/register-oauth-client.js"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.26.0",
     "dotenv": "^17.2.3",
+    "mcp-handler": "^1.1.0",
     "mysql2": "^3.15.3",
+    "next": "^16.2.10",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
     "zod": "^3.25.76"
   },
   "engines": {

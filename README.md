@@ -1,6 +1,6 @@
 # LIMU Portal MCP
 
-Model Context Protocol server for LIMU Portal operational and finance data. Most tools are read-only; controlled write tools can update client records, purchase schedules, leave approvals, requisitions, and payment vouchers, and delete eligible requisitions or payment vouchers.
+Model Context Protocol server for LIMU Portal operational and finance data. It supports the original local stdio/MySQL mode and a Vercel HTTP mode that authenticates with LIMU OAuth and calls LIMU Portal APIs.
 
 ## Exposed Data
 
@@ -21,6 +21,51 @@ cp .env.example .env
 npm install
 npm run smoke
 ```
+
+## Vercel HTTP MCP
+
+The Vercel entrypoint is:
+
+```text
+/api/mcp
+```
+
+It requires an OAuth bearer token issued by the LIMU Portal OAuth provider. The remote server validates tokens through:
+
+```text
+GET /Api/v1/oauth/userinfo/
+```
+
+Then each tool forwards that same bearer token to the relevant LIMU Portal API endpoint, keeping portal permissions as the source of truth.
+
+Register the OAuth client after you know the exact Vercel callback URL:
+
+```bash
+LIMU_OAUTH_REDIRECT_URI=https://your-vercel-app.vercel.app/api/auth/callback/limu \
+npm run register-oauth-client
+```
+
+The registration script needs either `LIMU_ADMIN_TOKEN` or `LIMU_ADMIN_EMAIL`/`LIMU_ADMIN_PASSWORD` in local `.env`. Do not set those admin credentials in Vercel.
+
+Set these Vercel environment variables:
+
+```env
+LIMU_PORTAL_BASE_URL=https://portal.limu.co.mw
+LIMU_OAUTH_ISSUER=https://portal.limu.co.mw/Api/v1/oauth
+LIMU_OAUTH_CLIENT_ID=limu-vercel-mcp
+```
+
+Then deploy:
+
+```bash
+npm run build
+```
+
+Vercel will serve the MCP route over Streamable HTTP through `mcp-handler`.
+
+The first remote migration currently covers OAuth-protected health/userinfo, clients, cargo, cargo packages, and shipments. Finance, budget, requisition, payment voucher, leave, and report tools are registered with explicit "portal endpoint pending" responses until their matching `/Api/v1/mcp/...` endpoints are added to the portal.
+
+## Local Stdio MCP
 
 Use a least-privilege MySQL user. A read-only user is enough for reporting tools, but write tools need narrowly scoped `UPDATE` access for `Clients`, `monthly_budget_entry`, and `leave_applications`, `INSERT`/`UPDATE`/`DELETE` access for monthly budget schedule splits, `UPDATE`/`INSERT` access for leave logs, requisitions, requisition logs, payment vouchers, and budget spend tables, plus `DELETE` access for eligible requisitions, requisition items/logs, payment vouchers, voucher items, and voucher proof rows.
 Write tools require `confirm: true`; use `dryRun: true` first to preview the exact proposed change.
