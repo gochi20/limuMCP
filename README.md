@@ -41,7 +41,7 @@ Then each tool forwards that same bearer token to the relevant LIMU Portal API e
 Register the OAuth client after you know the exact Vercel callback URL:
 
 ```bash
-LIMU_OAUTH_REDIRECT_URI=https://your-vercel-app.vercel.app/api/auth/callback/limu \
+LIMU_OAUTH_REDIRECT_URI=https://limu-mcp.vercel.app/api/auth/callback/limu \
 npm run register-oauth-client
 ```
 
