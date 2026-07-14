@@ -231,6 +231,26 @@ export function registerRemoteTools(server) {
     }
   );
 
+  server.registerTool(
+    'limu_get_imports_and_orders_report',
+    {
+      title: 'Imports and orders report',
+      description: 'Report imported cargo by shipment arrival date and ordered goods by order creation date. Requires Cargo, Shipments, and Order Form Reports access in LIMU Portal.',
+      inputSchema: {
+        from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD.'),
+        to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD.'),
+        limit: z.number().int().min(1).max(200).default(100),
+      },
+    },
+    async ({ from, to, limit }, extra) => {
+      const data = await portalRequest('/Api/v1/reports/imports-orders/', {
+        token: authToken(extra),
+        query: { from, to, limit },
+      });
+      return jsonToolResult(data);
+    }
+  );
+
   const pendingTools = [
     ['limu_list_monthly_budgets', '/Api/v1/mcp/monthly-budgets/'],
     ['limu_get_monthly_budget', '/Api/v1/mcp/monthly-budgets/{id}'],

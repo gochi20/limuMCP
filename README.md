@@ -69,7 +69,7 @@ codex mcp login limu_mcp
 
 Run `npm run smoke:oauth` to verify protected-resource metadata and audience checks locally.
 
-The first remote migration currently covers OAuth-protected health/userinfo, clients, cargo, cargo packages, and shipments. Finance, budget, requisition, payment voucher, leave, and report tools are registered with explicit "portal endpoint pending" responses until their matching `/Api/v1/mcp/...` endpoints are added to the portal.
+The remote migration currently covers OAuth-protected health/userinfo, clients, cargo, cargo packages, shipments, and an imports-and-orders report. The report uses shipment arrival dates for imported cargo and order-form creation dates for ordered goods. It requires the authenticated employee to have Cargo, Shipments, and Order Form Reports view access. Finance, budget, requisition, payment voucher, leave, and other report tools remain registered with explicit "portal endpoint pending" responses until their matching portal endpoints are added.
 
 ## Local Stdio MCP
 
@@ -118,6 +118,7 @@ Most MCP clients should launch it over stdio. Example client config:
 - `limu_get_package`
 - `limu_list_shipments`
 - `limu_get_shipment`
+- `limu_get_imports_and_orders_report`
 - `limu_list_monthly_budgets`
 - `limu_get_monthly_budget`
 - `limu_list_purchase_schedule`
