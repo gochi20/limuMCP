@@ -13,6 +13,7 @@
     "vercel-start": "next start",
     "start": "node src/server.js",
     "smoke": "node scripts/smoke.js",
+    "smoke:oauth": "node scripts/oauth-smoke.js",
     "register-oauth-client": "node scripts/register-oauth-client.js"
   },
   "dependencies": {

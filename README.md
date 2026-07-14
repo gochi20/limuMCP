@@ -38,21 +38,18 @@ GET /Api/v1/oauth/userinfo/
 
 Then each tool forwards that same bearer token to the relevant LIMU Portal API endpoint, keeping portal permissions as the source of truth.
 
-Register the OAuth client after you know the exact Vercel callback URL:
+The server publishes OAuth Protected Resource Metadata at:
 
-```bash
-LIMU_OAUTH_REDIRECT_URI=https://limu-mcp.vercel.app/api/auth/callback/limu \
-npm run register-oauth-client
+```text
+/.well-known/oauth-protected-resource
 ```
 
-The registration script needs either `LIMU_ADMIN_TOKEN` or `LIMU_ADMIN_EMAIL`/`LIMU_ADMIN_PASSWORD` in local `.env`. Do not set those admin credentials in Vercel.
+The portal publishes authorization server metadata and supports dynamic client registration, so Codex can register its temporary local callback automatically. Manual callback registration is not required.
 
-Set these Vercel environment variables:
+Set this Vercel environment variable:
 
 ```env
 LIMU_PORTAL_BASE_URL=https://portal.limu.co.mw
-LIMU_OAUTH_ISSUER=https://portal.limu.co.mw/Api/v1/oauth
-LIMU_OAUTH_CLIENT_ID=limu-vercel-mcp
 ```
 
 Then deploy:
@@ -62,6 +59,15 @@ npm run build
 ```
 
 Vercel will serve the MCP route over Streamable HTTP through `mcp-handler`.
+
+Add the deployed server to Codex and authenticate it:
+
+```bash
+codex mcp add limu_mcp --url https://limu-mcp.vercel.app/api/mcp
+codex mcp login limu_mcp
+```
+
+Run `npm run smoke:oauth` to verify protected-resource metadata and audience checks locally.
 
 The first remote migration currently covers OAuth-protected health/userinfo, clients, cargo, cargo packages, and shipments. Finance, budget, requisition, payment voucher, leave, and report tools are registered with explicit "portal endpoint pending" responses until their matching `/Api/v1/mcp/...` endpoints are added to the portal.
 

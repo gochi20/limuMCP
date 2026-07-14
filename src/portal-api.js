@@ -1,11 +1,38 @@
 const DEFAULT_PORTAL_BASE_URL = 'https://portal.limu.co.mw';
 
+export const LIMU_OAUTH_SCOPES = Object.freeze([
+  'profile:read',
+  'clients:read',
+  'clients:write',
+  'cargo:read',
+  'packages:read',
+  'shipments:read',
+  'budgets:read',
+  'budgets:write',
+  'requisitions:read',
+  'requisitions:review',
+  'requisitions:delete',
+  'payment_vouchers:read',
+  'payment_vouchers:review',
+  'payment_vouchers:pay',
+  'payment_vouchers:delete',
+  'leave:read',
+  'leave:review',
+  'offline_access',
+]);
+
 export function portalBaseUrl() {
   return (process.env.LIMU_PORTAL_BASE_URL || DEFAULT_PORTAL_BASE_URL).replace(/\/+$/, '');
 }
 
 export function limuOAuthIssuer() {
   return `${portalBaseUrl()}/Api/v1/oauth`;
+}
+
+export function mcpResourceUrl(requestOrUrl) {
+  const source = typeof requestOrUrl === 'string' ? requestOrUrl : requestOrUrl.url;
+  const url = new URL(source);
+  return new URL('/api/mcp', url.origin).href;
 }
 
 export function tokenFromAuthInfo(authInfo) {
@@ -79,21 +106,26 @@ export function jsonToolResult(payload) {
   };
 }
 
-export async function verifyLimuToken(token) {
+export async function verifyLimuToken(token, expectedResource) {
   if (!token) {
     return undefined;
   }
 
   try {
     const user = await portalRequest('/Api/v1/oauth/userinfo/', { token });
+    if (!expectedResource || user.aud !== expectedResource) {
+      return undefined;
+    }
     const scopes = typeof user.scope === 'string'
       ? user.scope.split(/\s+/).filter(Boolean)
       : [];
+    const expiresAt = Date.parse(user.expires_at || '');
 
     return {
       token,
       scopes,
       clientId: String(user.sub || user.id || user.email || 'limu-user'),
+      ...(Number.isNaN(expiresAt) ? {} : { expiresAt: Math.floor(expiresAt / 1000) }),
       extra: {
         user,
       },
