@@ -11,7 +11,7 @@ Model Context Protocol server for LIMU Portal operational and finance data. It s
 - Monthly budgets, detailed budget entries, and controlled purchase scheduling.
 - Shipment customs budgets and shipping budgets, including income rows, expense rows, and budget logs.
 - Requisitions, requisition items, payment vouchers, voucher items, payment proofs, and controlled approval/payment actions.
-- Client profile reports, lead reports, order form reports, leave applications, and timesheet reports.
+- Client profile reports, lead reports, order form reports, import product reports, leave applications, and timesheet reports.
 
 ## Setup
 
@@ -69,7 +69,7 @@ codex mcp login limu_mcp
 
 Run `npm run smoke:oauth` to verify protected-resource metadata and audience checks locally.
 
-The remote migration currently covers OAuth-protected health/userinfo, clients, cargo, cargo packages, shipments, and an imports-and-orders report. The report uses shipment arrival dates for imported cargo and order-form creation dates for ordered goods. It requires the authenticated employee to have Cargo, Shipments, and Order Form Reports view access. Finance, budget, requisition, payment voucher, leave, and other report tools remain registered with explicit "portal endpoint pending" responses until their matching portal endpoints are added.
+The remote migration currently covers OAuth-protected health/userinfo, clients, cargo, cargo packages, shipments, an imports-and-orders report, and the Import Product Report. The imports-and-orders report uses shipment arrival dates for imported cargo and order-form creation dates for ordered goods. The Import Product Report uses cargo import creation dates and returns category summaries, top importers, client-category rows, and trend data. Finance, budget, requisition, payment voucher, leave, and other report tools remain registered with explicit "portal endpoint pending" responses until their matching portal endpoints are added.
 
 ## Local Stdio MCP
 
@@ -119,6 +119,7 @@ Most MCP clients should launch it over stdio. Example client config:
 - `limu_list_shipments`
 - `limu_get_shipment`
 - `limu_get_imports_and_orders_report`
+- `limu_get_import_product_report`
 - `limu_list_monthly_budgets`
 - `limu_get_monthly_budget`
 - `limu_list_purchase_schedule`

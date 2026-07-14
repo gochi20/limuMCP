@@ -91,6 +91,7 @@ server.registerResource(
               'client_profile_reports',
               'lead_reports',
               'order_form_reports',
+              'import_product_reports',
               'timesheet_reports',
               'monthly_budget_entry',
               'monthly_budget_entry_schedule_split',
@@ -856,6 +857,23 @@ registerTool(
     },
   },
   getOrderFormReport
+);
+
+registerTool(
+  'limu_get_import_product_report',
+  {
+    title: 'Get import product report',
+    description: 'Read the Import Product Report with imported cargo categories, top importers, client-category rows, and import trend data.',
+    inputSchema: {
+      from: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/),
+      to: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/),
+      productCategory: optionalTextSchema,
+      categoryLimit: z.coerce.number().int().min(1).max(100).default(20),
+      clientLimit: z.coerce.number().int().min(1).max(500).default(100),
+      topImporterLimit: z.coerce.number().int().min(1).max(50).default(10),
+    },
+  },
+  getImportProductReport
 );
 
 registerTool(
@@ -6101,6 +6119,642 @@ async function buildOrderFormReportSummary(info, where, params, groupBy) {
       rows: volume,
     },
   };
+}
+
+async function getImportProductReport(args) {
+  const from = String(args.from || '').trim();
+  const to = String(args.to || '').trim();
+  if (from > to) {
+    throw new Error('from must be on or before to.');
+  }
+
+  const startSql = `${from} 00:00:00`;
+  const endSql = `${to} 23:59:59`;
+  const productCategoryKey = args.productCategory ? importProductCategoryKey(args.productCategory) : '';
+  const categoryLimit = clampInt(args.categoryLimit, 20, 1, 100);
+  const clientLimit = clampInt(args.clientLimit, 100, 1, 500);
+  const topImporterLimit = clampInt(args.topImporterLimit, 10, 1, 50);
+  const emptyTrend = buildImportProductTrend(from, to, {});
+
+  const emptyReport = (missingSources = [], sourceOverrides = {}) => ({
+    message: 'Import product report fetched.',
+    period: {
+      from,
+      to,
+      dateField: sourceOverrides.dateColumn ? `cargo.${sourceOverrides.dateColumn}` : null,
+    },
+    filters: {
+      productCategory: {
+        key: productCategoryKey,
+        label: '',
+      },
+      excludeAssortedCategories: true,
+    },
+    limits: {
+      categoryLimit,
+      clientLimit,
+      topImporterLimit,
+    },
+    summary: {
+      totalImports: 0,
+      uniqueClients: 0,
+      uniqueCategories: 0,
+      totalUnits: 0,
+      latestImportAt: '',
+      topClientName: '',
+      categoryTotalCbm: 0,
+    },
+    topImporters: [],
+    categoryOptions: [],
+    categoryBreakdown: [],
+    clientCategoryRows: [],
+    trend: emptyTrend,
+    sources: {
+      dateColumn: sourceOverrides.dateColumn || null,
+      datasetMode: sourceOverrides.datasetMode || null,
+      categorySourceAvailable: Boolean(sourceOverrides.categorySourceAvailable),
+      excludeAssortedCategories: true,
+      missingSources: [...new Set(missingSources)],
+    },
+    rowCounts: {
+      returnedClientCategoryRows: 0,
+      totalClientCategoryRows: 0,
+    },
+  });
+
+  if (!await tableExists('cargo')) {
+    return emptyReport(['cargo']);
+  }
+
+  const cargoIdCol = await pickColumn('cargo', ['cargoid', 'id']);
+  const cargoClientCol = await pickColumn('cargo', ['userid', 'clientid']);
+  const cargoDateCol = await pickColumn('cargo', ['cargocreatedon', 'created_on', 'created_at', 'createdon']);
+  const cargoPackagesCol = await pickColumn('cargo', ['packages']);
+  const cargoContentCol = await pickColumn('cargo', ['content']);
+  const cargoVolumeCol = await pickColumn('cargo', ['volume', 'cbm']);
+  const missingSources = [];
+
+  if (!cargoIdCol) missingSources.push('cargo.cargoid');
+  if (!cargoClientCol) missingSources.push('cargo.userid');
+  if (!cargoDateCol) missingSources.push('cargo.cargocreatedon');
+  if (!cargoVolumeCol) missingSources.push('cargo.volume');
+  if (!cargoIdCol || !cargoClientCol || !cargoDateCol) {
+    return emptyReport(missingSources, { dateColumn: cargoDateCol });
+  }
+
+  const cargoId = qid(cargoIdCol);
+  const cargoClient = qid(cargoClientCol);
+  const cargoDate = qid(cargoDateCol);
+  let fromSql = 'FROM `cargo` cg';
+  const whereSqlText = `WHERE cg.${cargoDate} >= ? AND cg.${cargoDate} <= ?`;
+  let clientNameExpr = `CONCAT('Client #', COALESCE(cg.${cargoClient}, 0))`;
+
+  let clientsAvailable = false;
+  if (await tableExists('Clients')) {
+    const clientIdCol = await pickColumn('Clients', ['userid', 'id']);
+    const clientFirstCol = await pickColumn('Clients', ['firstname', 'first_name']);
+    const clientLastCol = await pickColumn('Clients', ['lastname', 'last_name']);
+    const clientBusinessCol = await pickColumn('Clients', ['business']);
+    if (clientIdCol) {
+      clientsAvailable = true;
+      fromSql += ` LEFT JOIN \`Clients\` cl ON cl.${qid(clientIdCol)} = cg.${cargoClient}`;
+      const nameParts = [];
+      if (clientFirstCol) nameParts.push(`COALESCE(cl.${qid(clientFirstCol)}, '')`);
+      if (clientLastCol) nameParts.push(`COALESCE(cl.${qid(clientLastCol)}, '')`);
+      const fullNameExpr = nameParts.length > 0
+        ? `NULLIF(TRIM(CONCAT(${nameParts.join(", ' ', ")})), '')`
+        : 'NULL';
+      const businessExpr = clientBusinessCol
+        ? `NULLIF(TRIM(cl.${qid(clientBusinessCol)}), '')`
+        : 'NULL';
+      clientNameExpr = `COALESCE(${fullNameExpr}, ${businessExpr}, CONCAT('Client #', COALESCE(cg.${cargoClient}, 0)))`;
+    }
+  }
+  if (!clientsAvailable) {
+    missingSources.push('Clients.userid');
+  }
+
+  let categoryExpr = "'Uncategorized'";
+  let quantityExpr = cargoPackagesCol ? `COALESCE(cg.${qid(cargoPackagesCol)}, 0)` : '1';
+  let datasetMode = 'cargo_only';
+  let categorySourceAvailable = false;
+
+  if (await tableExists('cargo_packages')) {
+    const cpCargoCol = await pickColumn('cargo_packages', ['cargo_id', 'cargoid']);
+    const cpQtyCol = await pickColumn('cargo_packages', ['quantity', 'qty', 'packages']);
+    const cpContentIdCol = await pickColumn('cargo_packages', ['content_id']);
+    const cpContentCol = await pickColumn('cargo_packages', ['content']);
+    const cpPackageTypeCol = await pickColumn('cargo_packages', ['package_type']);
+    if (cpCargoCol) {
+      datasetMode = 'packages';
+      const cpCargo = qid(cpCargoCol);
+      fromSql += ` LEFT JOIN \`cargo_packages\` cp ON cp.${cpCargo} = cg.${cargoId}`;
+
+      const categoryParts = [];
+      if (await tableExists('cargo_content_category') && cpContentIdCol) {
+        const catIdCol = await pickColumn('cargo_content_category', ['id']);
+        const catContentCol = await pickColumn('cargo_content_category', ['content']);
+        if (catIdCol && catContentCol) {
+          fromSql += ` LEFT JOIN \`cargo_content_category\` cat ON cat.${qid(catIdCol)} = cp.${qid(cpContentIdCol)}`;
+          categoryParts.push(`NULLIF(TRIM(cat.${qid(catContentCol)}), '')`);
+          categorySourceAvailable = true;
+        }
+      }
+      if (cpContentCol) {
+        categoryParts.push(`NULLIF(TRIM(cp.${qid(cpContentCol)}), '')`);
+        categorySourceAvailable = true;
+      }
+      if (cpPackageTypeCol) {
+        categoryParts.push(`NULLIF(TRIM(cp.${qid(cpPackageTypeCol)}), '')`);
+        categorySourceAvailable = true;
+      }
+      if (categoryParts.length === 0 && cargoContentCol) {
+        categoryParts.push(`NULLIF(TRIM(cg.${qid(cargoContentCol)}), '')`);
+        categorySourceAvailable = true;
+      }
+      if (categoryParts.length > 0) {
+        categoryExpr = `COALESCE(${categoryParts.join(', ')}, 'Uncategorized')`;
+      }
+
+      if (cpQtyCol) {
+        quantityExpr = cargoPackagesCol
+          ? `CASE WHEN cp.${cpCargo} IS NULL THEN COALESCE(cg.${qid(cargoPackagesCol)}, 0) ELSE COALESCE(cp.${qid(cpQtyCol)}, 0) END`
+          : `COALESCE(cp.${qid(cpQtyCol)}, 0)`;
+      } else if (cargoPackagesCol) {
+        quantityExpr = `COALESCE(cg.${qid(cargoPackagesCol)}, 0)`;
+      }
+    } else {
+      missingSources.push('cargo_packages.cargo_id');
+    }
+  }
+
+  if (datasetMode === 'cargo_only' && await tableExists('cargoitems')) {
+    const ciCargoCol = await pickColumn('cargoitems', ['cargoid', 'cargo_id']);
+    const ciCategoryCol = await pickColumn('cargoitems', ['category', 'content']);
+    const ciQtyCol = await pickColumn('cargoitems', ['quantity', 'qty']);
+    if (ciCargoCol && ciCategoryCol) {
+      datasetMode = 'cargoitems';
+      fromSql += ` LEFT JOIN \`cargoitems\` ci ON ci.${qid(ciCargoCol)} = cg.${cargoId}`;
+      categoryExpr = `COALESCE(NULLIF(TRIM(ci.${qid(ciCategoryCol)}), ''), 'Uncategorized')`;
+      categorySourceAvailable = true;
+      quantityExpr = ciQtyCol
+        ? `COALESCE(ci.${qid(ciQtyCol)}, 0)`
+        : (cargoPackagesCol ? `COALESCE(cg.${qid(cargoPackagesCol)}, 0)` : '1');
+    }
+  }
+
+  if (!categorySourceAvailable && cargoContentCol) {
+    categoryExpr = `COALESCE(NULLIF(TRIM(cg.${qid(cargoContentCol)}), ''), 'Uncategorized')`;
+    categorySourceAvailable = true;
+  }
+  if (!categorySourceAvailable) {
+    missingSources.push('cargo category source (cargo_packages/cargo_content_category/cargoitems)');
+  }
+
+  const clientIdExpr = `COALESCE(cg.${cargoClient}, 0)`;
+  const cbmExpr = cargoVolumeCol ? `COALESCE(cg.${qid(cargoVolumeCol)}, 0)` : '0';
+  const categoryWhereSqlText = categorySourceAvailable
+    ? `${whereSqlText} AND LOWER(TRIM(${categoryExpr})) <> 'assorted'`
+    : whereSqlText;
+
+  const summaryRows = await queryRows(
+    `SELECT COUNT(DISTINCT cg.${cargoId}) AS totalImports,
+            COUNT(DISTINCT ${clientIdExpr}) AS uniqueClients,
+            COALESCE(SUM(${quantityExpr}), 0) AS totalUnits,
+            MAX(cg.${cargoDate}) AS latestImportAt
+     ${fromSql}
+     ${whereSqlText}`,
+    [startSql, endSql]
+  );
+  const summary = {
+    totalImports: Number(summaryRows[0]?.totalImports || 0),
+    uniqueClients: Number(summaryRows[0]?.uniqueClients || 0),
+    uniqueCategories: 0,
+    totalUnits: Number(summaryRows[0]?.totalUnits || 0),
+    latestImportAt: String(summaryRows[0]?.latestImportAt || ''),
+    topClientName: '',
+    categoryTotalCbm: 0,
+  };
+
+  let allCategoryMetrics = {
+    categoryOptions: [],
+    categoryBreakdown: [],
+    clientCategoryRows: [],
+    totalClientCategoryRows: 0,
+    uniqueCategories: 0,
+    categoryTotalCbm: 0,
+  };
+  let categoryMetrics = allCategoryMetrics;
+  let selectedProductCategoryLabel = '';
+  if (categorySourceAvailable) {
+    const uniqueClientRows = await queryRows(
+      `SELECT COUNT(DISTINCT ${clientIdExpr}) AS total
+       ${fromSql}
+       ${categoryWhereSqlText}`,
+      [startSql, endSql]
+    );
+    summary.uniqueClients = Number(uniqueClientRows[0]?.total || 0);
+
+    const categoryDetailRows = await queryRows(
+      `SELECT cg.${cargoId} AS cargo_id,
+              ${clientIdExpr} AS client_id,
+              ${clientNameExpr} AS client_name,
+              ${categoryExpr} AS category_label,
+              ${quantityExpr} AS quantity_value,
+              ${cbmExpr} AS cargo_cbm,
+              cg.${cargoDate} AS latest_import_at
+       ${fromSql}
+       ${whereSqlText}`,
+      [startSql, endSql]
+    );
+    allCategoryMetrics = buildImportProductCategoryMetrics(categoryDetailRows, '', 0, 0);
+    categoryMetrics = productCategoryKey
+      ? buildImportProductCategoryMetrics(categoryDetailRows, productCategoryKey, categoryLimit, clientLimit)
+      : buildImportProductCategoryMetrics(categoryDetailRows, '', categoryLimit, clientLimit);
+    summary.uniqueCategories = Number(allCategoryMetrics.uniqueCategories || 0);
+    summary.categoryTotalCbm = Number(categoryMetrics.categoryTotalCbm || 0);
+    selectedProductCategoryLabel = allCategoryMetrics.categoryOptions.find((option) => option.key === productCategoryKey)?.label || '';
+  }
+
+  const topClientRows = await queryRows(
+    `SELECT t.client_name AS clientName,
+            COALESCE(SUM(t.cargo_cbm), 0) AS totalCbm
+     FROM (
+       SELECT cg.${cargoId} AS cargo_id,
+              ${clientIdExpr} AS client_id,
+              ${clientNameExpr} AS client_name,
+              ${cbmExpr} AS cargo_cbm
+       ${fromSql}
+       ${categoryWhereSqlText}
+       GROUP BY cargo_id, client_id, client_name, cargo_cbm
+     ) t
+     GROUP BY t.client_id, t.client_name
+     ORDER BY totalCbm DESC, t.client_name ASC
+     LIMIT 1`,
+    [startSql, endSql]
+  );
+  summary.topClientName = String(topClientRows[0]?.clientName || '');
+
+  const topImporterRows = await queryRows(
+    `SELECT t.client_id AS clientId,
+            t.client_name AS clientName,
+            COUNT(*) AS cargoCount,
+            COALESCE(SUM(t.cargo_cbm), 0) AS totalCbm,
+            COALESCE(AVG(t.cargo_cbm), 0) AS averageCbm
+     FROM (
+       SELECT cg.${cargoId} AS cargo_id,
+              ${clientIdExpr} AS client_id,
+              ${clientNameExpr} AS client_name,
+              ${cbmExpr} AS cargo_cbm
+       ${fromSql}
+       ${categoryWhereSqlText}
+       GROUP BY cargo_id, client_id, client_name, cargo_cbm
+     ) t
+     GROUP BY t.client_id, t.client_name
+     ORDER BY totalCbm DESC, averageCbm DESC, t.client_name ASC
+     LIMIT ${topImporterLimit}`,
+    [startSql, endSql]
+  );
+  const topImporters = topImporterRows.map((row) => ({
+    clientId: Number(row.clientId || 0),
+    clientName: String(row.clientName || '').trim() || 'Unknown client',
+    cargoCount: Number(row.cargoCount || 0),
+    totalCbm: Number(row.totalCbm || 0),
+    averageCbm: Number(row.averageCbm || 0),
+  }));
+
+  const dailyRows = await queryRows(
+    `SELECT DATE(cg.${cargoDate}) AS dayKey,
+            COUNT(DISTINCT cg.${cargoId}) AS total
+     FROM \`cargo\` cg
+     WHERE cg.${cargoDate} >= ?
+       AND cg.${cargoDate} <= ?
+     GROUP BY DATE(cg.${cargoDate})
+     ORDER BY DATE(cg.${cargoDate}) ASC`,
+    [startSql, endSql]
+  );
+  const dailyCounts = {};
+  for (const row of dailyRows) {
+    if (row.dayKey) {
+      dailyCounts[String(row.dayKey)] = Number(row.total || 0);
+    }
+  }
+
+  return {
+    message: 'Import product report fetched.',
+    period: {
+      from,
+      to,
+      dateField: `cargo.${cargoDateCol}`,
+    },
+    filters: {
+      productCategory: {
+        key: productCategoryKey,
+        label: selectedProductCategoryLabel,
+      },
+      excludeAssortedCategories: true,
+    },
+    limits: {
+      categoryLimit,
+      clientLimit,
+      topImporterLimit,
+    },
+    summary,
+    topImporters,
+    categoryOptions: categorySourceAvailable ? allCategoryMetrics.categoryOptions : [],
+    categoryBreakdown: categoryMetrics.categoryBreakdown,
+    clientCategoryRows: categoryMetrics.clientCategoryRows,
+    trend: buildImportProductTrend(from, to, dailyCounts),
+    sources: {
+      dateColumn: cargoDateCol,
+      datasetMode,
+      categorySourceAvailable,
+      excludeAssortedCategories: true,
+      missingSources: [...new Set(missingSources)],
+    },
+    rowCounts: {
+      returnedClientCategoryRows: categoryMetrics.clientCategoryRows.length,
+      totalClientCategoryRows: categoryMetrics.totalClientCategoryRows,
+    },
+  };
+}
+
+function buildImportProductCategoryMetrics(rows, selectedCategoryKey = '', categoryLimit = 0, clientLimit = 0) {
+  const cargoGroups = new Map();
+  const categoryOptions = new Map();
+
+  for (const row of rows) {
+    const cargoId = Number(row.cargo_id || 0);
+    if (cargoId <= 0) {
+      continue;
+    }
+
+    const categoryLabel = importProductCategoryLabel(row.category_label);
+    const categoryKey = importProductCategoryKey(categoryLabel);
+    if (categoryKey === 'assorted') {
+      continue;
+    }
+    if (!categoryOptions.has(categoryKey)) {
+      categoryOptions.set(categoryKey, categoryLabel);
+    }
+
+    if (!cargoGroups.has(cargoId)) {
+      const clientName = String(row.client_name || '').trim();
+      cargoGroups.set(cargoId, {
+        clientId: Number(row.client_id || 0),
+        clientName: clientName || 'Unknown client',
+        cargoCbm: Math.max(0, Number(row.cargo_cbm || 0)),
+        latestImportAt: String(row.latest_import_at || ''),
+        categories: new Map(),
+      });
+    } else {
+      const cargo = cargoGroups.get(cargoId);
+      if (isImportProductMoreRecent(row.latest_import_at, cargo.latestImportAt)) {
+        cargo.latestImportAt = String(row.latest_import_at || '');
+      }
+    }
+
+    const cargo = cargoGroups.get(cargoId);
+    if (!cargo.categories.has(categoryKey)) {
+      cargo.categories.set(categoryKey, {
+        label: categoryLabel,
+        weight: 0,
+      });
+    }
+    const category = cargo.categories.get(categoryKey);
+    category.weight += importProductQuantityWeight(row.quantity_value);
+  }
+
+  const categoryTotals = new Map();
+  const clientCategoryTotals = new Map();
+  for (const [cargoId, cargo] of cargoGroups.entries()) {
+    if (cargo.categories.size === 0) {
+      continue;
+    }
+    let weightTotal = 0;
+    for (const category of cargo.categories.values()) {
+      weightTotal += Math.max(0, Number(category.weight || 0));
+    }
+    if (weightTotal <= 0) {
+      weightTotal = cargo.categories.size;
+      for (const category of cargo.categories.values()) {
+        category.weight = 1;
+      }
+    }
+
+    for (const [categoryKey, category] of cargo.categories.entries()) {
+      if (selectedCategoryKey && selectedCategoryKey !== categoryKey) {
+        continue;
+      }
+      const allocatedCbm = weightTotal > 0
+        ? cargo.cargoCbm * (Number(category.weight || 0) / weightTotal)
+        : 0;
+
+      if (!categoryTotals.has(categoryKey)) {
+        categoryTotals.set(categoryKey, {
+          key: categoryKey,
+          label: String(category.label || 'Uncategorized'),
+          totalCbm: 0,
+          cargoIds: new Set(),
+        });
+      }
+      const categoryTotal = categoryTotals.get(categoryKey);
+      categoryTotal.totalCbm += allocatedCbm;
+      categoryTotal.cargoIds.add(cargoId);
+
+      const clientCategoryKey = `${cargo.clientId}|${categoryKey}`;
+      if (!clientCategoryTotals.has(clientCategoryKey)) {
+        clientCategoryTotals.set(clientCategoryKey, {
+          clientId: cargo.clientId,
+          clientName: cargo.clientName,
+          categoryKey,
+          categoryLabel: String(category.label || 'Uncategorized'),
+          totalCbm: 0,
+          cargoIds: new Set(),
+          latestImportAt: cargo.latestImportAt,
+        });
+      }
+      const clientCategoryTotal = clientCategoryTotals.get(clientCategoryKey);
+      clientCategoryTotal.totalCbm += allocatedCbm;
+      clientCategoryTotal.cargoIds.add(cargoId);
+      if (isImportProductMoreRecent(cargo.latestImportAt, clientCategoryTotal.latestImportAt)) {
+        clientCategoryTotal.latestImportAt = cargo.latestImportAt;
+      }
+    }
+  }
+
+  let categoryTotalCbm = 0;
+  for (const categoryTotal of categoryTotals.values()) {
+    categoryTotalCbm += Number(categoryTotal.totalCbm || 0);
+  }
+
+  let categoryBreakdown = [...categoryTotals.values()].map((categoryTotal) => ({
+    key: categoryTotal.key,
+    label: categoryTotal.label,
+    totalCbm: Number(categoryTotal.totalCbm || 0),
+    cargoCount: categoryTotal.cargoIds.size,
+    sharePercent: categoryTotalCbm > 0 ? Number(((Number(categoryTotal.totalCbm || 0) / categoryTotalCbm) * 100).toFixed(1)) : 0,
+  }));
+  categoryBreakdown.sort((left, right) => (
+    Number(right.totalCbm || 0) - Number(left.totalCbm || 0)
+    || Number(right.cargoCount || 0) - Number(left.cargoCount || 0)
+    || String(left.label || '').localeCompare(String(right.label || ''), undefined, { sensitivity: 'base' })
+  ));
+  if (categoryLimit > 0) {
+    categoryBreakdown = categoryBreakdown.slice(0, categoryLimit);
+  }
+
+  let clientCategoryRows = [...clientCategoryTotals.values()].map((entry) => ({
+    clientId: Number(entry.clientId || 0),
+    clientName: entry.clientName || 'Unknown client',
+    categoryKey: entry.categoryKey,
+    categoryLabel: entry.categoryLabel,
+    cargoCount: entry.cargoIds.size,
+    totalCbm: Number(entry.totalCbm || 0),
+    latestImportAt: String(entry.latestImportAt || ''),
+  }));
+  clientCategoryRows.sort((left, right) => (
+    importProductDateMillis(right.latestImportAt) - importProductDateMillis(left.latestImportAt)
+    || String(left.clientName || '').localeCompare(String(right.clientName || ''), undefined, { sensitivity: 'base' })
+    || String(left.categoryLabel || '').localeCompare(String(right.categoryLabel || ''), undefined, { sensitivity: 'base' })
+  ));
+  const totalClientCategoryRows = clientCategoryRows.length;
+  if (clientLimit > 0) {
+    clientCategoryRows = clientCategoryRows.slice(0, clientLimit);
+  }
+
+  const categoryOptionRows = [...categoryOptions.entries()]
+    .map(([key, label]) => ({ key, label }))
+    .sort((left, right) => String(left.label || '').localeCompare(String(right.label || ''), undefined, { sensitivity: 'base' }));
+
+  return {
+    categoryOptions: categoryOptionRows,
+    categoryBreakdown,
+    clientCategoryRows,
+    totalClientCategoryRows,
+    uniqueCategories: categoryTotals.size,
+    categoryTotalCbm,
+  };
+}
+
+function importProductCategoryLabel(value) {
+  const label = String(value || '').trim();
+  return label || 'Uncategorized';
+}
+
+function importProductCategoryKey(value) {
+  return importProductCategoryLabel(value).toLowerCase();
+}
+
+function importProductQuantityWeight(value) {
+  const text = String(value ?? '').trim();
+  if (!text) {
+    return 1;
+  }
+  const numeric = Number(text);
+  if (Number.isFinite(numeric)) {
+    return numeric > 0 ? numeric : 1;
+  }
+  const match = text.match(/-?\d+(?:\.\d+)?/);
+  if (match) {
+    const parsed = Number(match[0]);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+  }
+  return 1;
+}
+
+function isImportProductMoreRecent(candidate, current) {
+  const candidateMillis = importProductDateMillis(candidate);
+  if (candidateMillis <= 0) {
+    return false;
+  }
+  const currentMillis = importProductDateMillis(current);
+  return currentMillis <= 0 || candidateMillis > currentMillis;
+}
+
+function importProductDateMillis(value) {
+  const text = String(value || '').trim();
+  if (!text) {
+    return 0;
+  }
+  const normalized = text.includes('T') ? text : text.replace(' ', 'T');
+  const millis = Date.parse(normalized);
+  return Number.isFinite(millis) ? millis : 0;
+}
+
+function buildImportProductTrend(startDate, endDate, dailyCounts) {
+  const start = importProductDateOnly(startDate);
+  const end = importProductDateOnly(endDate);
+  const rangeDays = Math.floor((end.getTime() - start.getTime()) / 86400000) + 1;
+  const useMonthlyTrend = rangeDays > 31;
+  const rows = [];
+  let total = 0;
+
+  if (useMonthlyTrend) {
+    const monthCursor = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), 1));
+    const monthEnd = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth() + 1, 1));
+    const months = new Map();
+    while (monthCursor < monthEnd) {
+      const key = `${monthCursor.getUTCFullYear()}-${String(monthCursor.getUTCMonth() + 1).padStart(2, '0')}`;
+      months.set(key, {
+        date: key,
+        label: importProductMonthLabel(monthCursor),
+        count: 0,
+      });
+      monthCursor.setUTCMonth(monthCursor.getUTCMonth() + 1);
+    }
+    for (const [dayKey, count] of Object.entries(dailyCounts)) {
+      const monthKey = String(dayKey).slice(0, 7);
+      if (months.has(monthKey)) {
+        months.get(monthKey).count += Math.max(0, Number(count || 0));
+      }
+    }
+    for (const month of months.values()) {
+      rows.push(month);
+      total += Number(month.count || 0);
+    }
+  } else {
+    const cursor = new Date(start.getTime());
+    while (cursor <= end) {
+      const date = importProductDateOnlyString(cursor);
+      const count = Number(dailyCounts[date] || 0);
+      rows.push({
+        date,
+        label: importProductDayLabel(cursor),
+        count,
+      });
+      total += count;
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+  }
+
+  return {
+    groupBy: useMonthlyTrend ? 'monthly' : 'daily',
+    total,
+    rows,
+  };
+}
+
+function importProductDateOnly(value) {
+  return new Date(`${String(value).slice(0, 10)}T00:00:00Z`);
+}
+
+function importProductDateOnlyString(date) {
+  return [
+    date.getUTCFullYear(),
+    String(date.getUTCMonth() + 1).padStart(2, '0'),
+    String(date.getUTCDate()).padStart(2, '0'),
+  ].join('-');
+}
+
+function importProductDayLabel(date) {
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return `${months[date.getUTCMonth()]} ${date.getUTCDate()}`;
+}
+
+function importProductMonthLabel(date) {
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return `${months[date.getUTCMonth()]} ${date.getUTCFullYear()}`;
 }
 
 function reportPeriodExpression(dateExpression, groupBy = 'daily') {

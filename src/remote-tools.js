@@ -251,6 +251,29 @@ export function registerRemoteTools(server) {
     }
   );
 
+  server.registerTool(
+    'limu_get_import_product_report',
+    {
+      title: 'Import product report',
+      description: 'Read the LIMU Portal Import Product Report: imported cargo categories, top importers, client-category rows, and import trend data. Requires Import Product Reports access in LIMU Portal.',
+      inputSchema: {
+        from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD.'),
+        to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD.'),
+        productCategory: optionalText,
+        categoryLimit: z.number().int().min(1).max(100).default(20),
+        clientLimit: z.number().int().min(1).max(500).default(100),
+        topImporterLimit: z.number().int().min(1).max(50).default(10),
+      },
+    },
+    async ({ from, to, productCategory, categoryLimit, clientLimit, topImporterLimit }, extra) => {
+      const data = await portalRequest('/Api/v1/reports/import-products/', {
+        token: authToken(extra),
+        query: { from, to, productCategory, categoryLimit, clientLimit, topImporterLimit },
+      });
+      return jsonToolResult(data);
+    }
+  );
+
   const pendingTools = [
     ['limu_list_monthly_budgets', '/Api/v1/mcp/monthly-budgets/'],
     ['limu_get_monthly_budget', '/Api/v1/mcp/monthly-budgets/{id}'],
