@@ -1,11 +1,18 @@
-import { limuOAuthIssuer } from '../../../src/portal-api.js';
+import {
+  LIMU_OAUTH_SCOPES,
+  limuOAuthIssuer,
+  mcpResourceUrl,
+} from '../../../src/portal-api.js';
 
 export async function GET(request) {
   const url = new URL(request.url);
   return Response.json(
     {
-      resource: url.origin,
+      resource: mcpResourceUrl(url.href),
       authorization_servers: [limuOAuthIssuer()],
+      scopes_supported: LIMU_OAUTH_SCOPES,
+      bearer_methods_supported: ['header'],
+      resource_name: 'LIMU MCP',
     },
     {
       headers: {

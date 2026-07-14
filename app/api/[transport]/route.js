@@ -1,6 +1,6 @@
 import { createMcpHandler, withMcpAuth } from 'mcp-handler';
 import { registerRemoteTools } from '../../../src/remote-tools.js';
-import { verifyLimuToken } from '../../../src/portal-api.js';
+import { mcpResourceUrl, verifyLimuToken } from '../../../src/portal-api.js';
 
 const handler = createMcpHandler(
   (server) => {
@@ -16,7 +16,7 @@ const handler = createMcpHandler(
 
 const authHandler = withMcpAuth(
   handler,
-  async (_request, bearerToken) => verifyLimuToken(bearerToken),
+  async (request, bearerToken) => verifyLimuToken(bearerToken, mcpResourceUrl(request)),
   {
     required: true,
     resourceMetadataPath: '/.well-known/oauth-protected-resource',
