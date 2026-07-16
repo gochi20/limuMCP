@@ -3,8 +3,18 @@ import { jsonToolResult, portalRequest, tokenFromAuthInfo } from './portal-api.j
 
 const optionalText = z.string().trim().optional();
 const optionalId = z.number().int().positive().optional();
+const optionalDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD.').optional();
+const optionalMonth = z.string().regex(/^\d{4}-\d{2}$/, 'Use YYYY-MM.').optional();
 const limitSchema = z.number().int().min(1).max(100).default(25);
 const offsetSchema = z.number().int().min(0).default(0);
+const budgetFilters = {
+  budgetEntryId: optionalId,
+  budgetMonth: optionalMonth,
+  categoryId: optionalId,
+  category: optionalText,
+  currency: optionalText,
+  search: optionalText,
+};
 
 function authToken(extra) {
   return tokenFromAuthInfo(extra?.authInfo);
@@ -274,11 +284,115 @@ export function registerRemoteTools(server) {
     }
   );
 
+  server.registerTool(
+    'limu_list_monthly_budgets',
+    {
+      title: 'List monthly budgets',
+      description: 'List monthly budget entries through the LIMU Portal API.',
+      inputSchema: {
+        ...budgetFilters,
+        limit: limitSchema,
+        offset: offsetSchema,
+      },
+    },
+    async (args, extra) => {
+      const data = await portalRequest('/Api/v1/mcp/monthly-budgets/', {
+        token: authToken(extra),
+        query: args,
+      });
+      return jsonToolResult(data);
+    }
+  );
+
+  server.registerTool(
+    'limu_get_monthly_budget',
+    {
+      title: 'Get monthly budget',
+      description: 'Get a monthly budget period or entry through the LIMU Portal API.',
+      inputSchema: {
+        ...budgetFilters,
+        includeScheduleSplits: z.boolean().default(true),
+        includeUsage: z.boolean().default(false),
+        linkedLimit: limitSchema,
+        limit: limitSchema,
+        offset: offsetSchema,
+      },
+    },
+    async (args, extra) => {
+      const data = await portalRequest('/Api/v1/mcp/monthly-budgets/', {
+        token: authToken(extra),
+        query: args,
+      });
+      return jsonToolResult(data);
+    }
+  );
+
+  server.registerTool(
+    'limu_get_budget_report',
+    {
+      title: 'Budget report',
+      description: 'Get a monthly budget report with totals by currency/category and purchase schedule coverage.',
+      inputSchema: {
+        ...budgetFilters,
+      },
+    },
+    async (args, extra) => {
+      const data = await portalRequest('/Api/v1/mcp/budget-report/', {
+        token: authToken(extra),
+        query: args,
+      });
+      return jsonToolResult(data);
+    }
+  );
+
+  server.registerTool(
+    'limu_list_purchase_schedule',
+    {
+      title: 'List purchase schedule',
+      description: 'List scheduled budget purchases through the LIMU Portal API.',
+      inputSchema: {
+        ...budgetFilters,
+        scheduledFrom: optionalDate,
+        scheduledTo: optionalDate,
+        limit: limitSchema,
+        offset: offsetSchema,
+      },
+    },
+    async (args, extra) => {
+      const data = await portalRequest('/Api/v1/mcp/purchase-schedule/', {
+        token: authToken(extra),
+        query: args,
+      });
+      return jsonToolResult(data);
+    }
+  );
+
+  server.registerTool(
+    'limu_schedule_budget_purchase',
+    {
+      title: 'Schedule budget purchase',
+      description: 'Set, clear, add, update, or delete purchase schedule rows through the LIMU Portal API.',
+      inputSchema: {
+        action: z.enum(['set_single_date', 'clear_single_date', 'add_split', 'update_split', 'delete_split']),
+        budgetEntryId: z.number().int().positive(),
+        splitId: optionalId,
+        scheduleDate: optionalDate,
+        scheduledAmount: z.number().nonnegative().optional(),
+        dryRun: z.boolean().default(false),
+        confirm: z.boolean().default(false),
+      },
+    },
+    async (args, extra) => {
+      const data = await portalRequest('/Api/v1/mcp/purchase-schedule/', {
+        token: authToken(extra),
+        method: 'POST',
+        body: args,
+      });
+      return jsonToolResult(data);
+    }
+  );
+
   const pendingTools = [
-    ['limu_list_monthly_budgets', '/Api/v1/mcp/monthly-budgets/'],
-    ['limu_get_monthly_budget', '/Api/v1/mcp/monthly-budgets/{id}'],
-    ['limu_list_purchase_schedule', '/Api/v1/mcp/purchase-schedule/'],
-    ['limu_schedule_budget_purchase', '/Api/v1/mcp/purchase-schedule/'],
     ['limu_list_requisitions', '/Api/v1/mcp/requisitions/'],
     ['limu_get_requisition', '/Api/v1/mcp/requisitions/{id}'],
     ['limu_review_requisition', '/Api/v1/mcp/requisitions/{id}/review'],

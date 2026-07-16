@@ -435,6 +435,26 @@ registerTool(
 );
 
 registerTool(
+  'limu_get_budget_report',
+  {
+    title: 'Get budget report',
+    description: 'Get monthly budget report totals by currency and category, with purchase schedule coverage.',
+    inputSchema: {
+      budgetMonth: optionalMonthSchema,
+      categoryId: optionalIdSchema,
+      category: optionalTextSchema,
+      currency: optionalTextSchema,
+      search: optionalTextSchema,
+      includeEntries: z.boolean().default(true),
+      includePurchaseSchedule: z.boolean().default(true),
+      limit: limitSchema,
+      offset: offsetSchema,
+    },
+  },
+  getBudgetReport
+);
+
+registerTool(
   'limu_list_purchase_schedule',
   {
     title: 'List purchase schedule',
@@ -2533,6 +2553,72 @@ async function getMonthlyBudget(args) {
     scheduleSplitsByEntry: groupScheduleSplits(scheduleSplits),
     pagination: list.pagination,
   };
+}
+
+async function getBudgetReport(args) {
+  await requireTable('monthly_budget_entry');
+  const budgetMonth = args.budgetMonth || currentBudgetPeriodKey();
+  const list = await listMonthlyBudgets({
+    ...args,
+    budgetMonth,
+    limit: args.limit,
+    offset: args.offset,
+  });
+  const allRows = (await listMonthlyBudgets({
+    ...args,
+    budgetMonth,
+    limit: MAX_LIMIT,
+    offset: 0,
+  })).rows;
+  const schedule = args.includePurchaseSchedule
+    ? await listPurchaseSchedule({
+      ...args,
+      budgetMonth,
+      limit: MAX_LIMIT,
+      offset: 0,
+    })
+    : { rows: [], pagination: { limit: 0, offset: 0, returned: 0 } };
+
+  return {
+    budgetMonth,
+    period: budgetPeriodInfo(budgetMonth),
+    summary: summarizeMonthlyBudgetRows(allRows),
+    byCategory: summarizeBudgetRowsByCategory(allRows),
+    scheduleSummary: summarizeMonthlyBudgetRows(schedule.rows),
+    entries: args.includeEntries ? list.rows : [],
+    purchaseSchedule: args.includePurchaseSchedule ? schedule.rows : [],
+    pagination: list.pagination,
+  };
+}
+
+function summarizeBudgetRowsByCategory(rows) {
+  const totals = new Map();
+  for (const row of rows) {
+    const key = String(row.categoryName || 'Uncategorized');
+    const current = totals.get(key) || {
+      categoryName: key,
+      entryCount: 0,
+      amount: 0,
+      spentAmount: 0,
+      balance: 0,
+      effectiveScheduledAmount: 0,
+    };
+    current.entryCount += 1;
+    current.amount += Number(row.amount || 0);
+    current.spentAmount += Number(row.spentAmount || 0);
+    current.balance += Number(row.balance || 0);
+    current.effectiveScheduledAmount += Number(row.effectiveScheduledAmount || 0);
+    totals.set(key, current);
+  }
+
+  return [...totals.values()].map((row) => ({
+    ...row,
+    amount: roundMoney(row.amount),
+    spentAmount: roundMoney(row.spentAmount),
+    balance: roundMoney(row.balance),
+    effectiveScheduledAmount: roundMoney(row.effectiveScheduledAmount),
+    unscheduledAmount: roundMoney(row.amount - row.effectiveScheduledAmount),
+  }));
 }
 
 async function listPurchaseSchedule(args) {
