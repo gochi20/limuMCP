@@ -285,6 +285,57 @@ export function registerRemoteTools(server) {
   );
 
   server.registerTool(
+    'limu_get_leads_report',
+    {
+      title: 'Leads report',
+      description: 'Read LIMU lead conversion, source, segment, tag, and pipeline analytics with paginated lead records. Requires Leads Reports access in LIMU Portal.',
+      inputSchema: {
+        from: optionalDate,
+        to: optionalDate,
+        search: optionalText,
+        status: optionalText,
+        segment: optionalText,
+        source: optionalText,
+        tag: optionalText,
+        district: optionalText,
+        ownerId: optionalId,
+        onlyUnassignedOwner: z.boolean().default(false),
+        trendGroup: z.enum(['daily', 'weekly', 'monthly']).default('monthly'),
+        limit: limitSchema,
+        offset: offsetSchema,
+      },
+    },
+    async (args, extra) => {
+      const data = await portalRequest('/Api/v1/reports/leads/', {
+        token: authToken(extra),
+        query: args,
+      });
+      return jsonToolResult(data);
+    }
+  );
+
+  server.registerTool(
+    'limu_get_client_profile_report',
+    {
+      title: 'Client profile report',
+      description: 'Read active client profiles based on cargo activity, including demographics, tier, relations-officer coverage, and paginated client detail. Requires Client Profile Reports or Clients access in LIMU Portal.',
+      inputSchema: {
+        from: optionalDate,
+        to: optionalDate,
+        limit: limitSchema,
+        offset: offsetSchema,
+      },
+    },
+    async (args, extra) => {
+      const data = await portalRequest('/Api/v1/reports/client-profiles/', {
+        token: authToken(extra),
+        query: args,
+      });
+      return jsonToolResult(data);
+    }
+  );
+
+  server.registerTool(
     'limu_list_monthly_budgets',
     {
       title: 'List monthly budgets',
