@@ -15,6 +15,36 @@ const budgetFilters = {
   currency: optionalText,
   search: optionalText,
 };
+const quickbooksId = z.coerce.string().trim().regex(/^\d{1,30}$/, 'Use a QuickBooks numeric ID.');
+const quickbooksAmount = z.number().positive().max(1000000000);
+const quickbooksCurrency = z.string().trim().regex(/^[A-Za-z]{3}$/, 'Use a three-letter currency code.').transform((value) => value.toUpperCase()).optional();
+const quickbooksPostingFields = {
+  txnDate: optionalDate,
+  dueDate: optionalDate,
+  currency: quickbooksCurrency,
+  docNumber: z.string().trim().max(21).optional(),
+  privateNote: z.string().trim().max(3600).optional(),
+  sourceReference: z.string().trim().regex(/^[A-Za-z0-9._:-]{4,120}$/, 'Use a stable source reference with letters, numbers, dots, underscores, colons, or hyphens.'),
+  idempotencyKey: z.string().trim().regex(/^[A-Za-z0-9._:-]{4,120}$/, 'Use a stable idempotency key with letters, numbers, dots, underscores, colons, or hyphens.'),
+  dryRun: z.boolean().default(true),
+  confirm: z.boolean().default(false),
+};
+const quickbooksSalesLine = z.object({
+  itemId: quickbooksId,
+  amount: quickbooksAmount,
+  description: z.string().trim().max(1000).optional(),
+  quantity: z.number().positive().max(1000000).optional(),
+  unitPrice: quickbooksAmount.optional(),
+});
+const quickbooksExpenseLine = z.object({
+  accountId: quickbooksId,
+  amount: quickbooksAmount,
+  description: z.string().trim().max(1000).optional(),
+});
+const quickbooksApplication = z.object({
+  id: quickbooksId,
+  amount: quickbooksAmount,
+});
 
 function authToken(extra) {
   return tokenFromAuthInfo(extra?.authInfo);
@@ -441,6 +471,163 @@ export function registerRemoteTools(server) {
       });
       return jsonToolResult(data);
     }
+  );
+
+  server.registerTool(
+    'limu_get_quickbooks_status',
+    {
+      title: 'QuickBooks connection status',
+      description: 'Check whether the LIMU Portal QuickBooks connection is configured and active. QuickBooks credentials and tokens are never returned.',
+      inputSchema: {},
+      annotations: { readOnlyHint: true },
+    },
+    async (_args, extra) => jsonToolResult(await portalRequest('/Api/v1/mcp/quickbooks/', {
+      token: authToken(extra),
+      query: { action: 'status' },
+    }))
+  );
+
+  server.registerTool(
+    'limu_list_quickbooks_accounts',
+    {
+      title: 'List QuickBooks accounts',
+      description: 'List active QuickBooks chart-of-accounts entries through the LIMU Portal connection.',
+      inputSchema: { limit: z.number().int().min(1).max(200).default(100) },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ limit }, extra) => jsonToolResult(await portalRequest('/Api/v1/mcp/quickbooks/', {
+      token: authToken(extra),
+      query: { action: 'accounts', limit },
+    }))
+  );
+
+  server.registerTool(
+    'limu_get_quickbooks_aged_receivables',
+    {
+      title: 'QuickBooks aged receivables',
+      description: 'Read the QuickBooks aged receivables report, optionally as of a report date.',
+      inputSchema: { reportDate: optionalDate },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ reportDate }, extra) => jsonToolResult(await portalRequest('/Api/v1/mcp/quickbooks/', {
+      token: authToken(extra),
+      query: { action: 'aged_receivables', reportDate },
+    }))
+  );
+
+  server.registerTool(
+    'limu_get_quickbooks_aged_payables',
+    {
+      title: 'QuickBooks aged payables',
+      description: 'Read the QuickBooks aged payables report, optionally as of a report date.',
+      inputSchema: { reportDate: optionalDate },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ reportDate }, extra) => jsonToolResult(await portalRequest('/Api/v1/mcp/quickbooks/', {
+      token: authToken(extra),
+      query: { action: 'aged_payables', reportDate },
+    }))
+  );
+
+  server.registerTool(
+    'limu_list_quickbooks_open_invoices',
+    {
+      title: 'List open QuickBooks invoices',
+      description: 'List open QuickBooks invoices dated on or before the selected cut-off date.',
+      inputSchema: { cutoffDate: optionalDate, limit: z.number().int().min(1).max(500).default(100) },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ cutoffDate, limit }, extra) => jsonToolResult(await portalRequest('/Api/v1/mcp/quickbooks/', {
+      token: authToken(extra),
+      query: { action: 'open_invoices', cutoffDate, limit },
+    }))
+  );
+
+  server.registerTool(
+    'limu_list_quickbooks_open_bills',
+    {
+      title: 'List open QuickBooks bills',
+      description: 'List open QuickBooks bills dated on or before the selected cut-off date.',
+      inputSchema: { cutoffDate: optionalDate, limit: z.number().int().min(1).max(500).default(100) },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ cutoffDate, limit }, extra) => jsonToolResult(await portalRequest('/Api/v1/mcp/quickbooks/', {
+      token: authToken(extra),
+      query: { action: 'open_bills', cutoffDate, limit },
+    }))
+  );
+
+  server.registerTool(
+    'limu_create_quickbooks_invoice',
+    {
+      title: 'Create QuickBooks invoice',
+      description: 'Preview or create a customer invoice through the LIMU Portal. Defaults to a dry run; set dryRun false and confirm true only after approval. Direct journals and deletions are not exposed.',
+      inputSchema: {
+        ...quickbooksPostingFields,
+        customerId: quickbooksId,
+        lines: z.array(quickbooksSalesLine).min(1).max(50),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+    },
+    async (args, extra) => jsonToolResult(await portalRequest('/Api/v1/mcp/quickbooks/', {
+      token: authToken(extra), method: 'POST', body: { action: 'create_invoice', ...args },
+    }))
+  );
+
+  server.registerTool(
+    'limu_create_quickbooks_bill',
+    {
+      title: 'Create QuickBooks bill',
+      description: 'Preview or create a supplier bill through the LIMU Portal. Defaults to a dry run; set dryRun false and confirm true only after approval.',
+      inputSchema: {
+        ...quickbooksPostingFields,
+        vendorId: quickbooksId,
+        lines: z.array(quickbooksExpenseLine).min(1).max(50),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+    },
+    async (args, extra) => jsonToolResult(await portalRequest('/Api/v1/mcp/quickbooks/', {
+      token: authToken(extra), method: 'POST', body: { action: 'create_bill', ...args },
+    }))
+  );
+
+  server.registerTool(
+    'limu_create_quickbooks_payment',
+    {
+      title: 'Receive QuickBooks payment',
+      description: 'Preview or record a customer payment against one or more invoices through the LIMU Portal. Defaults to a dry run; set dryRun false and confirm true only after approval.',
+      inputSchema: {
+        ...quickbooksPostingFields,
+        customerId: quickbooksId,
+        depositToAccountId: quickbooksId,
+        totalAmount: quickbooksAmount,
+        paymentReference: z.string().trim().max(100).optional(),
+        applications: z.array(quickbooksApplication).min(1).max(50),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+    },
+    async (args, extra) => jsonToolResult(await portalRequest('/Api/v1/mcp/quickbooks/', {
+      token: authToken(extra), method: 'POST', body: { action: 'create_payment', ...args },
+    }))
+  );
+
+  server.registerTool(
+    'limu_create_quickbooks_bill_payment',
+    {
+      title: 'Pay QuickBooks bills',
+      description: 'Preview or record a bill payment against one or more supplier bills through the LIMU Portal. Defaults to a dry run; set dryRun false and confirm true only after approval.',
+      inputSchema: {
+        ...quickbooksPostingFields,
+        vendorId: quickbooksId,
+        bankAccountId: quickbooksId,
+        paymentReference: z.string().trim().max(100).optional(),
+        applications: z.array(quickbooksApplication).min(1).max(50),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+    },
+    async (args, extra) => jsonToolResult(await portalRequest('/Api/v1/mcp/quickbooks/', {
+      token: authToken(extra), method: 'POST', body: { action: 'create_bill_payment', ...args },
+    }))
   );
 
   const pendingTools = [

@@ -69,7 +69,17 @@ codex mcp login limu_mcp
 
 Run `npm run smoke:oauth` to verify protected-resource metadata and audience checks locally.
 
-The remote migration currently covers OAuth-protected health/userinfo, clients, cargo, cargo packages, shipments, monthly budgets, budget reports, purchase schedules, imports-and-orders, import-product, leads, and client-profile reports. The leads report returns conversion, source, segment, tag, and pipeline analytics while enforcing the viewer's portal report permissions. The client-profile report summarizes clients active in a selected cargo-activity period, including demographics, tiers, and relations-officer coverage. Requisition, payment voucher, and leave tools remain registered with explicit "portal endpoint pending" responses until their matching portal endpoints are added.
+The remote migration currently covers OAuth-protected health/userinfo, clients, cargo, cargo packages, shipments, monthly budgets, budget reports, purchase schedules, imports-and-orders, import-product, leads, client-profile reports, and a controlled QuickBooks accounting slice. The leads report returns conversion, source, segment, tag, and pipeline analytics while enforcing the viewer's portal report permissions. The client-profile report summarizes clients active in a selected cargo-activity period, including demographics, tiers, and relations-officer coverage. Requisition, payment voucher, and leave tools remain registered with explicit "portal endpoint pending" responses until their matching portal endpoints are added.
+
+### QuickBooks through the portal
+
+The portal is the sole owner of the QuickBooks OAuth connection and keeps its Intuit tokens in the portal database. The MCP never receives or returns those credentials.
+
+- Read tools require the `quickbooks:read` OAuth scope and an Accounts, Customs, or Payment Vouchers view permission.
+- Invoice, bill, customer-payment, and bill-payment tools require `quickbooks:write` plus Accounts, Customs, or Payment Vouchers management permission.
+- Financial write tools default to `dryRun: true`; a real post requires both `dryRun: false` and `confirm: true`.
+- Every post requires a stable `sourceReference` and `idempotencyKey`. The portal records a local audit row and sends a matching QuickBooks `requestid` to prevent accidental duplicate postings.
+- Direct journal entries, updates, and deletes are deliberately not exposed.
 
 ## Local Stdio MCP
 
