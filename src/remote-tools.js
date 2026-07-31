@@ -607,6 +607,25 @@ export function registerRemoteTools(server) {
   );
 
   server.registerTool(
+    'limu_list_quickbooks_expenses',
+    {
+      title: 'List QuickBooks expenses',
+      description: 'List QuickBooks Purchase and BillPayment transactions for a date range, optionally limited to a bank account. This is read-only and intended for bank reconciliation.',
+      inputSchema: {
+        startDate: optionalDate,
+        endDate: optionalDate,
+        bankAccountId: quickbooksId.optional(),
+        limit: z.number().int().min(1).max(500).default(100),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ startDate, endDate, bankAccountId, limit }, extra) => jsonToolResult(await portalRequest('/Api/v1/mcp/quickbooks/', {
+      token: authToken(extra),
+      query: { action: 'expenses', startDate, endDate, bankAccountId, limit },
+    }))
+  );
+
+  server.registerTool(
     'limu_create_quickbooks_invoice',
     {
       title: 'Create QuickBooks invoice',
