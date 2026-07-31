@@ -474,6 +474,33 @@ export function registerRemoteTools(server) {
   );
 
   server.registerTool(
+    'limu_list_payment_vouchers',
+    {
+      title: 'List payment vouchers',
+      description: 'List payment vouchers with requisition, spend, item, proof, and payment-reference summary context.',
+      inputSchema: {
+        voucherId: optionalId,
+        requisitionId: optionalId,
+        status: z.enum(['submitted', 'approved', 'paid', 'declined']).optional(),
+        paymentMethod: z.enum(['cash', 'bank_transfer', 'mobile_wallet']).optional(),
+        initiatedFrom: optionalDate,
+        initiatedTo: optionalDate,
+        search: z.string().trim().min(1).max(160).optional(),
+        limit: limitSchema,
+        offset: offsetSchema,
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async (args, extra) => {
+      const data = await portalRequest('/Api/v1/mcp/payment-vouchers/', {
+        token: authToken(extra),
+        query: args,
+      });
+      return jsonToolResult(data);
+    }
+  );
+
+  server.registerTool(
     'limu_get_quickbooks_status',
     {
       title: 'QuickBooks connection status',
@@ -635,7 +662,6 @@ export function registerRemoteTools(server) {
     ['limu_get_requisition', '/Api/v1/mcp/requisitions/{id}'],
     ['limu_review_requisition', '/Api/v1/mcp/requisitions/{id}/review'],
     ['limu_delete_requisition', '/Api/v1/mcp/requisitions/{id}'],
-    ['limu_list_payment_vouchers', '/Api/v1/mcp/payment-vouchers/'],
     ['limu_get_payment_voucher', '/Api/v1/mcp/payment-vouchers/{id}'],
     ['limu_review_payment_voucher', '/Api/v1/mcp/payment-vouchers/{id}/review'],
     ['limu_delete_payment_voucher', '/Api/v1/mcp/payment-vouchers/{id}'],
