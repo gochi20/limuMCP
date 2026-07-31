@@ -501,6 +501,28 @@ export function registerRemoteTools(server) {
   );
 
   server.registerTool(
+    'limu_mark_payment_voucher_paid',
+    {
+      title: 'Mark payment voucher paid',
+      description: 'Mark a management-approved voucher as paid and post its allocated spend to the linked budget. Run with dryRun=true before confirming.',
+      inputSchema: {
+        voucherId: z.number().int().positive(),
+        dryRun: z.boolean().default(true),
+        confirm: z.boolean().default(false),
+      },
+      annotations: { readOnlyHint: false, idempotentHint: false },
+    },
+    async (args, extra) => {
+      const data = await portalRequest('/Api/v1/mcp/payment-vouchers/paid/', {
+        token: authToken(extra),
+        method: 'POST',
+        body: args,
+      });
+      return jsonToolResult(data);
+    }
+  );
+
+  server.registerTool(
     'limu_get_quickbooks_status',
     {
       title: 'QuickBooks connection status',
@@ -665,7 +687,6 @@ export function registerRemoteTools(server) {
     ['limu_get_payment_voucher', '/Api/v1/mcp/payment-vouchers/{id}'],
     ['limu_review_payment_voucher', '/Api/v1/mcp/payment-vouchers/{id}/review'],
     ['limu_delete_payment_voucher', '/Api/v1/mcp/payment-vouchers/{id}'],
-    ['limu_mark_payment_voucher_paid', '/Api/v1/mcp/payment-vouchers/{id}/paid'],
     ['limu_list_leave_applications', '/Api/v1/mcp/leave-applications/'],
     ['limu_review_leave_application', '/Api/v1/mcp/leave-applications/{id}/review'],
   ];
