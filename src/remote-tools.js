@@ -342,6 +342,25 @@ export function registerRemoteTools(server) {
   );
 
   server.registerTool(
+    'limu_get_cargo_action_audit',
+    {
+      title: 'Get cargo action audit',
+      description: 'Read the sanitized audit status and server-side error for one guarded cargo action by its exact idempotency key. This does not expose request bodies, response tokens, or credentials.',
+      inputSchema: {
+        idempotencyKey: actionKeySchema,
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ idempotencyKey }, extra) => {
+      const data = await portalRequest('/Api/v1/cargo/action-audit.php', {
+        token: authToken(extra),
+        query: { idempotencyKey },
+      });
+      return jsonToolResult(data);
+    }
+  );
+
+  server.registerTool(
     'limu_list_packages',
     {
       title: 'List packages',

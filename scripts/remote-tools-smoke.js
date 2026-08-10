@@ -15,16 +15,19 @@ const createPackage = tools.get('limu_create_package');
 const mergeCargo = tools.get('limu_merge_cargo');
 const assignCargoShipment = tools.get('limu_assign_cargo_shipment');
 const syncCargoPackageCount = tools.get('limu_sync_cargo_package_count');
+const getCargoActionAudit = tools.get('limu_get_cargo_action_audit');
 assert.ok(createCargo, 'limu_create_cargo was not registered.');
 assert.ok(createPackage, 'limu_create_package was not registered.');
 assert.ok(mergeCargo, 'limu_merge_cargo was not registered.');
 assert.ok(assignCargoShipment, 'limu_assign_cargo_shipment was not registered.');
 assert.ok(syncCargoPackageCount, 'limu_sync_cargo_package_count was not registered.');
+assert.ok(getCargoActionAudit, 'limu_get_cargo_action_audit was not registered.');
 assert.equal(createCargo.definition.annotations.readOnlyHint, false);
 assert.equal(createPackage.definition.annotations.readOnlyHint, false);
 assert.equal(mergeCargo.definition.annotations.destructiveHint, true);
 assert.equal(assignCargoShipment.definition.annotations.idempotentHint, true);
 assert.equal(syncCargoPackageCount.definition.annotations.idempotentHint, true);
+assert.equal(getCargoActionAudit.definition.annotations.readOnlyHint, true);
 
 const cargoArgs = {
   clientId: 42,
@@ -61,7 +64,7 @@ globalThis.fetch = async (url, options) => {
     url: String(url),
     method: options.method,
     authorization: options.headers.Authorization,
-    body: JSON.parse(options.body),
+    body: options.body === undefined ? undefined : JSON.parse(options.body),
   });
   return Response.json({ status: 201, message: 'Created.' }, { status: 201 });
 };
@@ -88,6 +91,9 @@ try {
     expectedPackageQuantity: 7,
     dryRun: true,
     confirm: false,
+  }, extra);
+  await getCargoActionAudit.handler({
+    idempotencyKey: 'gat013-merge-7124-20260810-v1',
   }, extra);
 } finally {
   globalThis.fetch = originalFetch;
@@ -150,10 +156,16 @@ assert.deepEqual(requests, [
       confirm: false,
     },
   },
+  {
+    url: 'https://portal.limu.co.mw/Api/v1/cargo/action-audit.php?idempotencyKey=gat013-merge-7124-20260810-v1',
+    method: 'GET',
+    authorization: 'Bearer test-token',
+    body: undefined,
+  },
 ]);
 
 console.log(JSON.stringify({
   ok: true,
   registeredToolCount: tools.size,
-  testedTools: ['limu_create_cargo', 'limu_create_package', 'limu_merge_cargo', 'limu_assign_cargo_shipment', 'limu_sync_cargo_package_count'],
+  testedTools: ['limu_create_cargo', 'limu_create_package', 'limu_merge_cargo', 'limu_assign_cargo_shipment', 'limu_sync_cargo_package_count', 'limu_get_cargo_action_audit'],
 }, null, 2));
