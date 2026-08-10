@@ -342,6 +342,103 @@ export function registerRemoteTools(server) {
   );
 
   server.registerTool(
+    'limu_reassign_cargo_client',
+    {
+      title: 'Correct cargo client ownership',
+      description: 'Preview or correct the client owner of one Created, unassigned cargo record. Execution requires the exact current client ID, a fresh preview token, explicit confirmation, and an idempotency key.',
+      inputSchema: {
+        cargoId: z.number().int().positive(),
+        expectedCurrentClientId: z.number().int().positive(),
+        targetClientId: z.number().int().positive(),
+        dryRun: z.boolean().default(true),
+        confirm: z.boolean().default(false),
+        previewToken: previewTokenSchema,
+        idempotencyKey: actionKeySchema,
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+    },
+    async (args, extra) => {
+      if (!args.dryRun && args.confirm && (!args.previewToken || !args.idempotencyKey)) {
+        throw new Error('Confirmed client corrections require previewToken and idempotencyKey from an approved dry run.');
+      }
+      const data = await portalRequest('/Api/v1/cargo/reassign-client.php', {
+        token: authToken(extra),
+        method: 'POST',
+        body: args,
+      });
+      return jsonToolResult(data);
+    }
+  );
+
+  server.registerTool(
+    'limu_correct_cargo_totals',
+    {
+      title: 'Correct cargo totals',
+      description: 'Preview or correct weight, volume, and declared package count for one Created, unassigned cargo. The exact current totals are required and package-unit differences are reported as warnings before execution.',
+      inputSchema: {
+        cargoId: z.number().int().positive(),
+        expectedWeight: nonNegativeMeasurement,
+        expectedVolume: nonNegativeMeasurement,
+        expectedPackageCount: z.number().int().min(0).max(1000000),
+        proposedWeight: nonNegativeMeasurement,
+        proposedVolume: nonNegativeMeasurement,
+        proposedPackageCount: z.number().int().min(0).max(1000000),
+        dryRun: z.boolean().default(true),
+        confirm: z.boolean().default(false),
+        previewToken: previewTokenSchema,
+        idempotencyKey: actionKeySchema,
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+    },
+    async (args, extra) => {
+      if (!args.dryRun && args.confirm && (!args.previewToken || !args.idempotencyKey)) {
+        throw new Error('Confirmed totals corrections require previewToken and idempotencyKey from an approved dry run.');
+      }
+      const data = await portalRequest('/Api/v1/cargo/correct-totals.php', {
+        token: authToken(extra),
+        method: 'POST',
+        body: args,
+      });
+      return jsonToolResult(data);
+    }
+  );
+
+  server.registerTool(
+    'limu_reconcile_cargo_packages',
+    {
+      title: 'Reconcile cargo package groups',
+      description: 'Preview or execute whole-package-group moves and exact tracking-number deduplication across Created, unassigned cargo owned by the same client. Partial-unit splits and checked packages are rejected.',
+      inputSchema: {
+        targetCargoId: z.number().int().positive(),
+        packageMoves: z.array(z.object({
+          packageId: z.number().int().positive(),
+          expectedSourceCargoId: z.number().int().positive(),
+        })).max(500).default([]),
+        deduplications: z.array(z.object({
+          deletePackageId: z.number().int().positive(),
+          keepPackageId: z.number().int().positive(),
+        })).max(500).default([]),
+        dryRun: z.boolean().default(true),
+        confirm: z.boolean().default(false),
+        previewToken: previewTokenSchema,
+        idempotencyKey: actionKeySchema,
+      },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+    },
+    async (args, extra) => {
+      if (!args.dryRun && args.confirm && (!args.previewToken || !args.idempotencyKey)) {
+        throw new Error('Confirmed package reconciliations require previewToken and idempotencyKey from an approved dry run.');
+      }
+      const data = await portalRequest('/Api/v1/cargo/reconcile-packages.php', {
+        token: authToken(extra),
+        method: 'POST',
+        body: args,
+      });
+      return jsonToolResult(data);
+    }
+  );
+
+  server.registerTool(
     'limu_get_cargo_action_audit',
     {
       title: 'Get cargo action audit',
