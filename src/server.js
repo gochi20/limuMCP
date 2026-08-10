@@ -3091,6 +3091,7 @@ async function buildBudgetScheduleProposal(conn, entry, splits, args) {
     if (!args.scheduleDate) {
       throw new Error('scheduleDate is required when setting a purchase schedule.');
     }
+    ensureFutureBudgetScheduleDate(args.scheduleDate);
     await requireMonthlyBudgetPurchaseScheduleColumn();
     return {
       action,
@@ -3180,6 +3181,7 @@ function validateBudgetScheduleSplitInput(args) {
   if (!args.scheduleDate) {
     throw new Error('scheduleDate is required for split purchase schedules.');
   }
+  ensureFutureBudgetScheduleDate(args.scheduleDate);
   if (args.scheduledAmount === undefined || args.scheduledAmount === null) {
     throw new Error('scheduledAmount is required for split purchase schedules.');
   }
@@ -3187,6 +3189,20 @@ function validateBudgetScheduleSplitInput(args) {
     scheduleDate: args.scheduleDate,
     scheduledAmount: roundMoney(args.scheduledAmount),
   };
+}
+
+function ensureFutureBudgetScheduleDate(scheduleDate) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Africa/Blantyre',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  const today = `${values.year}-${values.month}-${values.day}`;
+  if (scheduleDate <= today) {
+    throw new Error('Payment schedules must be set to a future date. Today and past dates are not allowed.');
+  }
 }
 
 function ensureBudgetScheduleAmountWithinBudget(budgetAmount, projectedSplitTotal) {
