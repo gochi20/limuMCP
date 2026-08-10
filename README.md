@@ -5,8 +5,8 @@ Model Context Protocol server for LIMU Portal operational and finance data. It s
 ## Exposed Data
 
 - Clients, including editable profile records plus cargo, package, shipment, invoice, payment, order-form, lead, KYC, query, and mobile-account summaries.
-- Cargo records, tracking numbers, clients, shipment links, package totals, and cargo logs.
-- Cargo package groups, package units, and stage-check summaries.
+- Cargo records, tracking numbers, clients, shipment links, package totals, and cargo logs, with confirmation-gated cargo creation in Vercel HTTP mode.
+- Cargo package groups, package units, and stage-check summaries, with confirmation-gated package creation in Vercel HTTP mode.
 - Shipments, calendars, status updates, cargo totals, and budget summaries.
 - Monthly budgets, detailed budget entries, and controlled purchase scheduling.
 - Shipment customs budgets and shipping budgets, including income rows, expense rows, and budget logs.
@@ -69,6 +69,14 @@ codex mcp login limu_mcp
 
 Run `npm run smoke:oauth` to verify protected-resource metadata and audience checks locally.
 
+### Cargo writes through the portal
+
+- Cargo and package creation require the `cargo:write` OAuth scope plus the employee's Cargo create permission.
+- Cargo merge and shipment assignment require `cargo:write` plus Cargo edit permission.
+- Merge and assignment default to dry-run previews. Execution requires an unchanged SHA-256 preview token, explicit confirmation, and a stable idempotency key.
+- Merges accept only `Created`, unassigned cargo owned by one client. Source cargo records are deleted after their related records are moved into the approved primary cargo.
+- Shipment assignment accepts only `Created`, unassigned cargo and changes its status to `Booked`.
+
 The remote migration currently covers OAuth-protected health/userinfo, clients, cargo, cargo packages, shipments, monthly budgets, budget reports, purchase schedules, imports-and-orders, import-product, leads, client-profile reports, and a controlled QuickBooks accounting slice. The leads report returns conversion, source, segment, tag, and pipeline analytics while enforcing the viewer's portal report permissions. The client-profile report summarizes clients active in a selected cargo-activity period, including demographics, tiers, and relations-officer coverage. Requisition, payment voucher, and leave tools remain registered with explicit "portal endpoint pending" responses until their matching portal endpoints are added.
 
 ### QuickBooks through the portal
@@ -124,8 +132,12 @@ Most MCP clients should launch it over stdio. Example client config:
 - `limu_update_client`
 - `limu_list_cargo`
 - `limu_get_cargo`
+- `limu_create_cargo`
+- `limu_merge_cargo`
+- `limu_assign_cargo_shipment`
 - `limu_list_packages`
 - `limu_get_package`
+- `limu_create_package`
 - `limu_list_shipments`
 - `limu_get_shipment`
 - `limu_get_imports_and_orders_report`

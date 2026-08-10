@@ -21,6 +21,7 @@ const allowedScopes = [
   'clients:read',
   'clients:write',
   'cargo:read',
+  'cargo:write',
   'packages:read',
   'shipments:read',
   'budgets:read',

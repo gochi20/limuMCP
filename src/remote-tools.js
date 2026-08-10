@@ -7,6 +7,23 @@ const optionalDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD.').
 const optionalMonth = z.string().regex(/^\d{4}-\d{2}$/, 'Use YYYY-MM.').optional();
 const limitSchema = z.number().int().min(1).max(100).default(25);
 const offsetSchema = z.number().int().min(0).default(0);
+const nonNegativeMeasurement = z.number().finite().min(0).max(1000000000);
+const packageTypeSchema = z.enum([
+  'box',
+  'pallet',
+  'carton',
+  'crate',
+  'bundle',
+  'bag',
+  'roll',
+  'piece',
+  'other',
+]);
+const actionKeySchema = z.string().trim().regex(
+  /^[A-Za-z0-9._:-]{8,120}$/,
+  'Use a stable 8-120 character key with letters, numbers, dots, underscores, colons, or hyphens.'
+).optional();
+const previewTokenSchema = z.string().trim().regex(/^[a-f0-9]{64}$/, 'Use the SHA-256 preview token returned by the latest dry run.').optional();
 const budgetFilters = {
   budgetEntryId: optionalId,
   budgetMonth: optionalMonth,
@@ -191,6 +208,111 @@ export function registerRemoteTools(server) {
   );
 
   server.registerTool(
+    'limu_create_cargo',
+    {
+      title: 'Create cargo',
+      description: 'Preview or create a cargo record through the LIMU Portal API. The authenticated employee must have Cargo create permission. Set confirm=true only after the proposed cargo details have been approved.',
+      inputSchema: {
+        clientId: z.number().int().positive(),
+        shipmentId: optionalId,
+        location: z.string().trim().min(1).max(255),
+        weight: nonNegativeMeasurement.default(0),
+        volume: nonNegativeMeasurement.default(0),
+        packageCount: z.number().int().min(0).max(1000000).default(0),
+        content: z.string().trim().max(1000).optional(),
+        financeStatus: z.string().trim().min(1).max(100).default('Pending Payment'),
+        consignmentValue: z.number().finite().min(0).max(1000000000).optional(),
+        confirm: z.boolean().default(false),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+    },
+    async ({ confirm, packageCount, ...cargo }, extra) => {
+      const proposedCargo = {
+        clientId: cargo.clientId,
+        shipmentId: cargo.shipmentId,
+        location: cargo.location,
+        weight: cargo.weight,
+        volume: cargo.volume,
+        packages: packageCount,
+        content: cargo.content,
+        financeStatus: cargo.financeStatus,
+        consignmentValue: cargo.consignmentValue,
+      };
+      if (!confirm) {
+        return jsonToolResult({
+          ok: false,
+          confirmationRequired: true,
+          message: 'Review proposedCargo, then call limu_create_cargo again with confirm=true to create it.',
+          proposedCargo,
+        });
+      }
+
+      const data = await portalRequest('/Api/v1/cargo/create.php', {
+        token: authToken(extra),
+        method: 'POST',
+        body: proposedCargo,
+      });
+      return jsonToolResult(data);
+    }
+  );
+
+  server.registerTool(
+    'limu_merge_cargo',
+    {
+      title: 'Preview or merge cargo',
+      description: 'Preview a same-client merge of Created, unassigned cargo or execute an approved preview. Confirmed merges move related records into the primary cargo and delete the source cargo records. Always run dryRun=true first, then reuse its previewToken with confirm=true, dryRun=false, and a stable idempotencyKey.',
+      inputSchema: {
+        primaryCargoId: z.number().int().positive(),
+        sourceCargoIds: z.array(z.number().int().positive()).min(1).max(50),
+        dryRun: z.boolean().default(true),
+        confirm: z.boolean().default(false),
+        previewToken: previewTokenSchema,
+        idempotencyKey: actionKeySchema,
+      },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+    },
+    async (args, extra) => {
+      if (!args.dryRun && args.confirm && (!args.previewToken || !args.idempotencyKey)) {
+        throw new Error('Confirmed merges require previewToken and idempotencyKey from an approved dry run.');
+      }
+      const data = await portalRequest('/Api/v1/cargo/merge.php', {
+        token: authToken(extra),
+        method: 'POST',
+        body: args,
+      });
+      return jsonToolResult(data);
+    }
+  );
+
+  server.registerTool(
+    'limu_assign_cargo_shipment',
+    {
+      title: 'Preview or assign cargo to shipment',
+      description: 'Preview assignment of one Created, unassigned cargo record to a shipment or execute an approved preview. A confirmed assignment changes cargo status to Booked and records shipment activity. Always run dryRun=true first, then reuse its previewToken with confirm=true, dryRun=false, and a stable idempotencyKey.',
+      inputSchema: {
+        cargoId: z.number().int().positive(),
+        shipmentId: z.number().int().positive(),
+        dryRun: z.boolean().default(true),
+        confirm: z.boolean().default(false),
+        previewToken: previewTokenSchema,
+        idempotencyKey: actionKeySchema,
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+    },
+    async (args, extra) => {
+      if (!args.dryRun && args.confirm && (!args.previewToken || !args.idempotencyKey)) {
+        throw new Error('Confirmed assignments require previewToken and idempotencyKey from an approved dry run.');
+      }
+      const data = await portalRequest('/Api/v1/cargo/assign-shipment.php', {
+        token: authToken(extra),
+        method: 'POST',
+        body: args,
+      });
+      return jsonToolResult(data);
+    }
+  );
+
+  server.registerTool(
     'limu_list_packages',
     {
       title: 'List packages',
@@ -203,6 +325,41 @@ export function registerRemoteTools(server) {
       const data = await portalRequest('/Api/v1/cargo/packages/', {
         token: authToken(extra),
         query: { cargoId },
+      });
+      return jsonToolResult(data);
+    }
+  );
+
+  server.registerTool(
+    'limu_create_package',
+    {
+      title: 'Create cargo package',
+      description: 'Preview or create a package group for existing cargo through the LIMU Portal API. The authenticated employee must have Cargo create permission. The portal generates the package code and unit records. Set confirm=true only after approval.',
+      inputSchema: {
+        cargoId: z.number().int().positive(),
+        contentId: z.number().int().positive(),
+        content: z.string().trim().min(1).max(255),
+        quantity: z.number().int().positive().max(1000000),
+        packageType: packageTypeSchema,
+        courierTrackingNumber: z.string().trim().min(1).max(100).optional(),
+        confirm: z.boolean().default(false),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+    },
+    async ({ confirm, ...proposedPackage }, extra) => {
+      if (!confirm) {
+        return jsonToolResult({
+          ok: false,
+          confirmationRequired: true,
+          message: 'Review proposedPackage, then call limu_create_package again with confirm=true to create it.',
+          proposedPackage,
+        });
+      }
+
+      const data = await portalRequest('/Api/v1/cargo/packages/create.php', {
+        token: authToken(extra),
+        method: 'POST',
+        body: proposedPackage,
       });
       return jsonToolResult(data);
     }

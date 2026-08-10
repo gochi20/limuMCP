@@ -5,6 +5,7 @@ export const LIMU_OAUTH_SCOPES = Object.freeze([
   'clients:read',
   'clients:write',
   'cargo:read',
+  'cargo:write',
   'packages:read',
   'shipments:read',
   'budgets:read',
