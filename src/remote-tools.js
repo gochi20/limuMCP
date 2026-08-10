@@ -313,6 +313,35 @@ export function registerRemoteTools(server) {
   );
 
   server.registerTool(
+    'limu_sync_cargo_package_count',
+    {
+      title: 'Sync cargo package count',
+      description: 'Preview or correct one Created, unassigned cargo record whose declared package count differs from the live sum of its package units. Execution requires the exact expected current and package-unit counts, a fresh preview token, explicit confirmation, and an idempotency key.',
+      inputSchema: {
+        cargoId: z.number().int().positive(),
+        expectedCurrentCount: z.number().int().min(0).max(1000000),
+        expectedPackageQuantity: z.number().int().min(0).max(1000000),
+        dryRun: z.boolean().default(true),
+        confirm: z.boolean().default(false),
+        previewToken: previewTokenSchema,
+        idempotencyKey: actionKeySchema,
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+    },
+    async (args, extra) => {
+      if (!args.dryRun && args.confirm && (!args.previewToken || !args.idempotencyKey)) {
+        throw new Error('Confirmed package-count corrections require previewToken and idempotencyKey from an approved dry run.');
+      }
+      const data = await portalRequest('/Api/v1/cargo/sync-package-count.php', {
+        token: authToken(extra),
+        method: 'POST',
+        body: args,
+      });
+      return jsonToolResult(data);
+    }
+  );
+
+  server.registerTool(
     'limu_list_packages',
     {
       title: 'List packages',

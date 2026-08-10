@@ -14,14 +14,17 @@ const createCargo = tools.get('limu_create_cargo');
 const createPackage = tools.get('limu_create_package');
 const mergeCargo = tools.get('limu_merge_cargo');
 const assignCargoShipment = tools.get('limu_assign_cargo_shipment');
+const syncCargoPackageCount = tools.get('limu_sync_cargo_package_count');
 assert.ok(createCargo, 'limu_create_cargo was not registered.');
 assert.ok(createPackage, 'limu_create_package was not registered.');
 assert.ok(mergeCargo, 'limu_merge_cargo was not registered.');
 assert.ok(assignCargoShipment, 'limu_assign_cargo_shipment was not registered.');
+assert.ok(syncCargoPackageCount, 'limu_sync_cargo_package_count was not registered.');
 assert.equal(createCargo.definition.annotations.readOnlyHint, false);
 assert.equal(createPackage.definition.annotations.readOnlyHint, false);
 assert.equal(mergeCargo.definition.annotations.destructiveHint, true);
 assert.equal(assignCargoShipment.definition.annotations.idempotentHint, true);
+assert.equal(syncCargoPackageCount.definition.annotations.idempotentHint, true);
 
 const cargoArgs = {
   clientId: 42,
@@ -79,6 +82,13 @@ try {
     dryRun: true,
     confirm: false,
   }, extra);
+  await syncCargoPackageCount.handler({
+    cargoId: 91,
+    expectedCurrentCount: 13,
+    expectedPackageQuantity: 7,
+    dryRun: true,
+    confirm: false,
+  }, extra);
 } finally {
   globalThis.fetch = originalFetch;
 }
@@ -128,10 +138,22 @@ assert.deepEqual(requests, [
       confirm: false,
     },
   },
+  {
+    url: 'https://portal.limu.co.mw/Api/v1/cargo/sync-package-count.php',
+    method: 'POST',
+    authorization: 'Bearer test-token',
+    body: {
+      cargoId: 91,
+      expectedCurrentCount: 13,
+      expectedPackageQuantity: 7,
+      dryRun: true,
+      confirm: false,
+    },
+  },
 ]);
 
 console.log(JSON.stringify({
   ok: true,
   registeredToolCount: tools.size,
-  testedTools: ['limu_create_cargo', 'limu_create_package', 'limu_merge_cargo', 'limu_assign_cargo_shipment'],
+  testedTools: ['limu_create_cargo', 'limu_create_package', 'limu_merge_cargo', 'limu_assign_cargo_shipment', 'limu_sync_cargo_package_count'],
 }, null, 2));
