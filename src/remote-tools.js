@@ -404,6 +404,40 @@ export function registerRemoteTools(server) {
   );
 
   server.registerTool(
+    'limu_correct_booked_cargo_totals',
+    {
+      title: 'Correct Booked cargo totals',
+      description: 'Preview or correct weight, volume, and declared package count for one Booked cargo that is already assigned to a shipment. Use this only when limu_correct_cargo_totals refuses because the cargo is no longer Created/unassigned. The exact current totals and the exact current shipment ID are required. The shipping-cost recomputes from the shipment pricing snapshot against the corrected totals and the client shipment summary is refreshed; package-unit differences are reported as warnings before execution.',
+      inputSchema: {
+        cargoId: z.number().int().positive(),
+        expectedShipmentId: z.number().int().positive(),
+        expectedWeight: nonNegativeMeasurement,
+        expectedVolume: nonNegativeMeasurement,
+        expectedPackageCount: z.number().int().min(0).max(1000000),
+        proposedWeight: nonNegativeMeasurement,
+        proposedVolume: nonNegativeMeasurement,
+        proposedPackageCount: z.number().int().min(0).max(1000000),
+        dryRun: z.boolean().default(true),
+        confirm: z.boolean().default(false),
+        previewToken: previewTokenSchema,
+        idempotencyKey: actionKeySchema,
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+    },
+    async (args, extra) => {
+      if (!args.dryRun && args.confirm && (!args.previewToken || !args.idempotencyKey)) {
+        throw new Error('Confirmed Booked totals corrections require previewToken and idempotencyKey from an approved dry run.');
+      }
+      const data = await portalRequest('/Api/v1/cargo/correct-booked-totals.php', {
+        token: authToken(extra),
+        method: 'POST',
+        body: args,
+      });
+      return jsonToolResult(data);
+    }
+  );
+
+  server.registerTool(
     'limu_reconcile_cargo_packages',
     {
       title: 'Reconcile cargo package groups',

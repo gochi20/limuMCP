@@ -17,6 +17,7 @@ const assignCargoShipment = tools.get('limu_assign_cargo_shipment');
 const syncCargoPackageCount = tools.get('limu_sync_cargo_package_count');
 const reassignCargoClient = tools.get('limu_reassign_cargo_client');
 const correctCargoTotals = tools.get('limu_correct_cargo_totals');
+const correctBookedCargoTotals = tools.get('limu_correct_booked_cargo_totals');
 const reconcileCargoPackages = tools.get('limu_reconcile_cargo_packages');
 const getCargoActionAudit = tools.get('limu_get_cargo_action_audit');
 assert.ok(createCargo, 'limu_create_cargo was not registered.');
@@ -26,6 +27,7 @@ assert.ok(assignCargoShipment, 'limu_assign_cargo_shipment was not registered.')
 assert.ok(syncCargoPackageCount, 'limu_sync_cargo_package_count was not registered.');
 assert.ok(reassignCargoClient, 'limu_reassign_cargo_client was not registered.');
 assert.ok(correctCargoTotals, 'limu_correct_cargo_totals was not registered.');
+assert.ok(correctBookedCargoTotals, 'limu_correct_booked_cargo_totals was not registered.');
 assert.ok(reconcileCargoPackages, 'limu_reconcile_cargo_packages was not registered.');
 assert.ok(getCargoActionAudit, 'limu_get_cargo_action_audit was not registered.');
 assert.equal(createCargo.definition.annotations.readOnlyHint, false);
@@ -35,6 +37,7 @@ assert.equal(assignCargoShipment.definition.annotations.idempotentHint, true);
 assert.equal(syncCargoPackageCount.definition.annotations.idempotentHint, true);
 assert.equal(reassignCargoClient.definition.annotations.idempotentHint, true);
 assert.equal(correctCargoTotals.definition.annotations.idempotentHint, true);
+assert.equal(correctBookedCargoTotals.definition.annotations.idempotentHint, true);
 assert.equal(reconcileCargoPackages.definition.annotations.destructiveHint, true);
 assert.equal(getCargoActionAudit.definition.annotations.readOnlyHint, true);
 
@@ -123,6 +126,18 @@ try {
     targetCargoId: 91,
     packageMoves: [{ packageId: 501, expectedSourceCargoId: 92 }],
     deduplications: [{ deletePackageId: 502, keepPackageId: 503 }],
+    dryRun: true,
+    confirm: false,
+  }, extra);
+  await correctBookedCargoTotals.handler({
+    cargoId: 91,
+    expectedShipmentId: 213,
+    expectedWeight: 25.5,
+    expectedVolume: 1.25,
+    expectedPackageCount: 3,
+    proposedWeight: 24.5,
+    proposedVolume: 1.2,
+    proposedPackageCount: 2,
     dryRun: true,
     confirm: false,
   }, extra);
@@ -231,6 +246,23 @@ assert.deepEqual(requests, [
     },
   },
   {
+    url: 'https://portal.limu.co.mw/Api/v1/cargo/correct-booked-totals.php',
+    method: 'POST',
+    authorization: 'Bearer test-token',
+    body: {
+      cargoId: 91,
+      expectedShipmentId: 213,
+      expectedWeight: 25.5,
+      expectedVolume: 1.25,
+      expectedPackageCount: 3,
+      proposedWeight: 24.5,
+      proposedVolume: 1.2,
+      proposedPackageCount: 2,
+      dryRun: true,
+      confirm: false,
+    },
+  },
+  {
     url: 'https://portal.limu.co.mw/Api/v1/cargo/action-audit.php?idempotencyKey=gat013-merge-7124-20260810-v1',
     method: 'GET',
     authorization: 'Bearer test-token',
@@ -241,5 +273,5 @@ assert.deepEqual(requests, [
 console.log(JSON.stringify({
   ok: true,
   registeredToolCount: tools.size,
-  testedTools: ['limu_create_cargo', 'limu_create_package', 'limu_merge_cargo', 'limu_assign_cargo_shipment', 'limu_sync_cargo_package_count', 'limu_reassign_cargo_client', 'limu_correct_cargo_totals', 'limu_reconcile_cargo_packages', 'limu_get_cargo_action_audit'],
+  testedTools: ['limu_create_cargo', 'limu_create_package', 'limu_merge_cargo', 'limu_assign_cargo_shipment', 'limu_sync_cargo_package_count', 'limu_reassign_cargo_client', 'limu_correct_cargo_totals', 'limu_correct_booked_cargo_totals', 'limu_reconcile_cargo_packages', 'limu_get_cargo_action_audit'],
 }, null, 2));
