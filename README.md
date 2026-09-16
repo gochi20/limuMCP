@@ -69,6 +69,10 @@ codex mcp login limu_mcp
 
 Run `npm run smoke:oauth` to verify protected-resource metadata and audience checks locally.
 
+### Client creation through the portal
+
+`limu_create_client` calls `POST /Api/v1/clients/create.php`. Deploy that PHP endpoint and `create-engine.php` to the portal before deploying the MCP. It requires `clients:write` and Clients create permission. It defaults to a server-validated dry run; saving requires `dryRun: false` and `confirm: true`. Matching phone numbers or email addresses return HTTP 409 without changing the existing client. The endpoint serializes its own create requests; legacy portal writers do not share that lock. No schema migration is required. Run `npm run smoke:client-create` for registration, authorization forwarding, preview defaults, validation, and duplicate-conflict checks. Run `php ../tests/client-create-validation-test.php` from this directory to check the PHP input validator. Rollback: remove the MCP tool registration and the two new PHP files; existing client records need no rollback.
+
 ### Cargo writes through the portal
 
 - Cargo and package creation require the `cargo:write` OAuth scope plus the employee's Cargo create permission.
@@ -129,6 +133,7 @@ Most MCP clients should launch it over stdio. Example client config:
 - `limu_health`
 - `limu_get_clients`
 - `limu_get_client`
+- `limu_create_client` (Vercel HTTP mode)
 - `limu_update_client`
 - `limu_list_cargo`
 - `limu_get_cargo`

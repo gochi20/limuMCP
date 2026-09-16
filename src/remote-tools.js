@@ -138,6 +138,32 @@ export function registerRemoteTools(server) {
   );
 
   server.registerTool(
+    'limu_create_client',
+    {
+      title: 'Create client',
+      description: 'Preview or create a new client. Requires clients:write and Clients create permission. Duplicate phone/email returns a conflict and never updates an existing client. Preview first; save with dryRun=false and confirm=true.',
+      inputSchema: {
+        firstName: z.string().trim().min(1).max(255),
+        lastName: z.string().trim().min(1).max(255),
+        phone: z.string().trim().regex(/^\+?[0-9 ()-]{6,30}$/),
+        email: z.string().trim().email().max(255).optional(),
+        gender: z.string().trim().max(20).optional(),
+        business: z.string().trim().max(255).optional(),
+        businessCategory: z.string().trim().max(255).optional(),
+        location: z.string().trim().max(255).optional(),
+        dryRun: z.boolean().default(true),
+        confirm: z.boolean().default(false),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+    },
+    async (args, extra) => jsonToolResult(await portalRequest('/Api/v1/clients/create.php', {
+      token: authToken(extra),
+      method: 'POST',
+      body: args,
+    }))
+  );
+
+  server.registerTool(
     'limu_update_client',
     {
       title: 'Update client',
