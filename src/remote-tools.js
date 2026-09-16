@@ -314,7 +314,7 @@ export function registerRemoteTools(server) {
     'limu_assign_cargo_shipment',
     {
       title: 'Preview or assign cargo to shipment',
-      description: 'Preview assignment of one Created, unassigned cargo record to a shipment or execute an approved preview. A confirmed assignment changes cargo status to Booked and records shipment activity. Always run dryRun=true first, then reuse its previewToken with confirm=true, dryRun=false, and a stable idempotencyKey.',
+      description: 'Preview assignment of one Created, unassigned cargo record to a shipment or execute an approved preview. A confirmed assignment changes cargo status to Booked and records shipment activity. Retry a completed request with the same cargoId, shipmentId, previewToken and idempotencyKey to retrieve its saved result without assigning again. Always run dryRun=true first, then reuse its previewToken with confirm=true, dryRun=false, and a stable idempotencyKey.',
       inputSchema: {
         cargoId: z.number().int().positive(),
         shipmentId: z.number().int().positive(),
@@ -325,7 +325,8 @@ export function registerRemoteTools(server) {
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     },
-    async (args, extra) => {
+    async ({ dryRun = true, confirm = false, ...input }, extra) => {
+      const args = { ...input, dryRun, confirm };
       if (!args.dryRun && args.confirm && (!args.previewToken || !args.idempotencyKey)) {
         throw new Error('Confirmed assignments require previewToken and idempotencyKey from an approved dry run.');
       }

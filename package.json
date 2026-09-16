@@ -16,7 +16,8 @@
     "smoke:remote-tools": "node scripts/remote-tools-smoke.js",
     "smoke:oauth": "node scripts/oauth-smoke.js",
     "register-oauth-client": "node scripts/register-oauth-client.js",
-    "smoke:client-create": "node scripts/client-create-smoke.js"
+    "smoke:client-create": "node scripts/client-create-smoke.js",
+    "smoke:assignment": "node scripts/assignment-smoke.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.26.0",
