@@ -147,6 +147,8 @@ Most MCP clients should launch it over stdio. Example client config:
 - `limu_list_packages`
 - `limu_get_package`
 - `limu_create_package`
+- `limu_update_package`
+- `limu_list_cargo_content_categories`
 - `limu_list_shipments`
 - `limu_get_shipment`
 - `limu_get_imports_and_orders_report`

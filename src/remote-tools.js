@@ -594,6 +594,71 @@ export function registerRemoteTools(server) {
   );
 
   server.registerTool(
+    'limu_list_cargo_content_categories',
+    {
+      title: 'List cargo content categories',
+      description: 'List the cargo content categories through the LIMU Portal API. This is the catalog a package\'s content_id (its category, e.g. "assorted") points at. Pass id to fetch one. Use it to resolve a valid categoryId before calling limu_update_package.',
+      inputSchema: {
+        id: optionalId,
+      },
+    },
+    async ({ id }, extra) => {
+      const data = await portalRequest('/Api/v1/settings/cargo-content/', {
+        token: authToken(extra),
+        query: { id },
+      });
+      return jsonToolResult(data);
+    }
+  );
+
+  server.registerTool(
+    'limu_update_package',
+    {
+      title: 'Update cargo package content or category',
+      description: 'Preview or update one cargo package\'s content description and/or its content category (contentId) through the LIMU Portal API. Provide at least one of content or contentId. contentId must be an existing cargo content category (see limu_list_cargo_content_categories). The authenticated employee must have Cargo edit permission. A dry run (confirm omitted/false) returns the current package alongside the proposed change so the edit can be reviewed; set confirm=true only after approval.',
+      inputSchema: {
+        packageId: z.number().int().positive(),
+        content: z.string().trim().min(1).max(255).optional(),
+        contentId: z.number().int().positive().optional(),
+        confirm: z.boolean().default(false),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+    },
+    async ({ packageId, content, contentId, confirm }, extra) => {
+      if (content === undefined && contentId === undefined) {
+        throw new Error('Provide at least one of content or contentId to update.');
+      }
+      const token = authToken(extra);
+      const proposedUpdate = {};
+      if (content !== undefined) proposedUpdate.content = content;
+      if (contentId !== undefined) proposedUpdate.contentId = contentId;
+
+      if (!confirm) {
+        const current = await portalRequest('/Api/v1/cargo/packages/', {
+          token,
+          query: { id: packageId },
+        });
+        return jsonToolResult({
+          ok: false,
+          confirmationRequired: true,
+          message: 'Review current vs proposedUpdate, then call limu_update_package again with confirm=true to apply it.',
+          packageId,
+          current,
+          proposedUpdate,
+        });
+      }
+
+      const data = await portalRequest('/Api/v1/cargo/packages/update.php', {
+        token,
+        method: 'PUT',
+        query: { id: packageId },
+        body: proposedUpdate,
+      });
+      return jsonToolResult(data);
+    }
+  );
+
+  server.registerTool(
     'limu_list_shipments',
     {
       title: 'List shipments',

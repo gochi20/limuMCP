@@ -20,6 +20,8 @@ const correctCargoTotals = tools.get('limu_correct_cargo_totals');
 const correctBookedCargoTotals = tools.get('limu_correct_booked_cargo_totals');
 const reconcileCargoPackages = tools.get('limu_reconcile_cargo_packages');
 const getCargoActionAudit = tools.get('limu_get_cargo_action_audit');
+const listCargoContentCategories = tools.get('limu_list_cargo_content_categories');
+const updatePackage = tools.get('limu_update_package');
 assert.ok(createCargo, 'limu_create_cargo was not registered.');
 assert.ok(createPackage, 'limu_create_package was not registered.');
 assert.ok(mergeCargo, 'limu_merge_cargo was not registered.');
@@ -30,6 +32,10 @@ assert.ok(correctCargoTotals, 'limu_correct_cargo_totals was not registered.');
 assert.ok(correctBookedCargoTotals, 'limu_correct_booked_cargo_totals was not registered.');
 assert.ok(reconcileCargoPackages, 'limu_reconcile_cargo_packages was not registered.');
 assert.ok(getCargoActionAudit, 'limu_get_cargo_action_audit was not registered.');
+assert.ok(listCargoContentCategories, 'limu_list_cargo_content_categories was not registered.');
+assert.ok(updatePackage, 'limu_update_package was not registered.');
+assert.equal(updatePackage.definition.annotations.readOnlyHint, false);
+assert.equal(updatePackage.definition.annotations.idempotentHint, true);
 assert.equal(createCargo.definition.annotations.readOnlyHint, false);
 assert.equal(createPackage.definition.annotations.readOnlyHint, false);
 assert.equal(mergeCargo.definition.annotations.destructiveHint, true);
@@ -270,8 +276,55 @@ assert.deepEqual(requests, [
   },
 ]);
 
+// Cargo content-category listing + package content/category update. Verified in
+// an isolated fetch mock so they don't disturb the ordered `requests` sequence.
+{
+  const extra = { authInfo: { token: 'test-token' } };
+  const calls = [];
+  const savedFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options) => {
+    calls.push({
+      url: String(url),
+      method: options.method,
+      body: options.body === undefined ? undefined : JSON.parse(options.body),
+    });
+    return Response.json({ status: 200, message: 'ok' }, { status: 200 });
+  };
+  try {
+    // An update with neither content nor contentId has nothing to change.
+    await assert.rejects(
+      () => updatePackage.handler({ packageId: 501, confirm: true }, extra),
+      /at least one of content or contentId/,
+    );
+
+    // Dry run returns the current package alongside the proposed change.
+    const preview = JSON.parse(
+      (await updatePackage.handler({ packageId: 501, content: 'Sports shoes', contentId: 4, confirm: false }, extra)).content[0].text,
+    );
+    assert.equal(preview.confirmationRequired, true);
+    assert.deepEqual(preview.proposedUpdate, { content: 'Sports shoes', contentId: 4 });
+
+    // Confirmed update PUTs only the changed fields to the package endpoint.
+    calls.length = 0;
+    await updatePackage.handler({ packageId: 501, content: 'Sports shoes', contentId: 4, confirm: true }, extra);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].method, 'PUT');
+    assert.match(calls[0].url, /\/Api\/v1\/cargo\/packages\/update\.php\?id=501$/);
+    assert.deepEqual(calls[0].body, { content: 'Sports shoes', contentId: 4 });
+
+    // Category listing reads the cargo-content catalog.
+    calls.length = 0;
+    await listCargoContentCategories.handler({}, extra);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].method, 'GET');
+    assert.match(calls[0].url, /\/Api\/v1\/settings\/cargo-content\/$/);
+  } finally {
+    globalThis.fetch = savedFetch;
+  }
+}
+
 console.log(JSON.stringify({
   ok: true,
   registeredToolCount: tools.size,
-  testedTools: ['limu_create_cargo', 'limu_create_package', 'limu_merge_cargo', 'limu_assign_cargo_shipment', 'limu_sync_cargo_package_count', 'limu_reassign_cargo_client', 'limu_correct_cargo_totals', 'limu_correct_booked_cargo_totals', 'limu_reconcile_cargo_packages', 'limu_get_cargo_action_audit'],
+  testedTools: ['limu_create_cargo', 'limu_create_package', 'limu_merge_cargo', 'limu_assign_cargo_shipment', 'limu_sync_cargo_package_count', 'limu_reassign_cargo_client', 'limu_correct_cargo_totals', 'limu_correct_booked_cargo_totals', 'limu_reconcile_cargo_packages', 'limu_get_cargo_action_audit', 'limu_list_cargo_content_categories', 'limu_update_package'],
 }, null, 2));
